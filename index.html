@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#071116"><meta name="description" content="Synapse Guard — a local Lua and Luau source cleaner.">
+<title>Synapse Guard</title>
+<style>
+:root{color-scheme:dark;--bg:#071116;--panel:#0c1b22;--panel2:#10232b;--line:#1b3c46;--cyan:#43e6e6;--cyan2:#12bfc8;--muted:#8ba8ae;--text:#e8fbfc;--green:#79f2bc}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 80% -10%,#12424b 0,transparent 42%),var(--bg);color:var(--text);font:15px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;min-height:100vh}
+.wrap{max-width:1180px;margin:auto;padding:28px 22px 50px}.top{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:46px}.brand{display:flex;align-items:center;gap:12px;font-weight:850;letter-spacing:.11em}.logo{width:38px;height:38px;border:1px solid #42dfe5;border-radius:12px;display:grid;place-items:center;color:var(--cyan);box-shadow:0 0 22px #25dce533;font-size:19px}.status{color:var(--green);font-size:12px;border:1px solid #285744;border-radius:99px;padding:6px 11px;background:#10251f}
+.hero{max-width:760px;margin-bottom:28px}.eyebrow{color:var(--cyan);font-size:12px;letter-spacing:.2em;font-weight:800}.hero h1{font-size:clamp(36px,6vw,62px);line-height:1.04;letter-spacing:-.045em;margin:12px 0}.hero h1 span{color:var(--cyan)}.hero p{color:var(--muted);font-size:16px;max-width:650px}
+.panel{background:linear-gradient(145deg,#0d2028,#09171d);border:1px solid var(--line);border-radius:18px;overflow:hidden;box-shadow:0 22px 80px #0005}.toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}.tools{display:flex;gap:8px;flex-wrap:wrap}.btn{border:1px solid #28505a;background:#102831;color:var(--text);border-radius:9px;padding:9px 13px;font-weight:650;cursor:pointer;font-size:13px}.btn:hover{border-color:var(--cyan);color:var(--cyan)}.btn.primary{background:linear-gradient(120deg,#32d6d9,#16aebc);color:#041316;border:0}.btn:disabled{opacity:.45;cursor:not-allowed}.editor{display:grid;grid-template-columns:1fr 1fr;min-height:390px}.pane{min-width:0;display:flex;flex-direction:column}.pane+ .pane{border-left:1px solid var(--line)}.panehead{padding:11px 15px;color:#9ab9c0;font-size:12px;letter-spacing:.1em;border-bottom:1px solid #18343d;display:flex;justify-content:space-between}.pane textarea{width:100%;height:390px;resize:vertical;background:#07141a;color:#d7f4f4;border:0;outline:0;padding:17px;font:13px/1.7 ui-monospace,SFMono-Regular,Consolas,monospace;tab-size:2}.pane textarea::placeholder{color:#54727a}.stats{display:flex;gap:18px;flex-wrap:wrap;padding:12px 16px;color:var(--muted);font-size:12px;border-top:1px solid var(--line)}.stats b{color:var(--text);font-weight:700}.notice{margin-top:18px;padding:14px 16px;border:1px solid #25434a;border-radius:12px;background:#0a1a20;color:#9db9bf;font-size:13px}.notice strong{color:var(--cyan)}footer{margin-top:35px;color:#66848b;font-size:12px;text-align:center}
+@media(max-width:720px){.wrap{padding:20px 13px 36px}.top{margin-bottom:34px}.editor{grid-template-columns:1fr}.pane+ .pane{border-left:0;border-top:1px solid var(--line)}.pane textarea{height:290px}.toolbar{align-items:flex-start}.tools{width:100%}.btn{flex:1}.hero p{font-size:14px}}
+</style>
+</head>
+<body><main class="wrap">
+<header class="top"><div class="brand"><div class="logo">⌘</div><span>SYNAPSE <span style="color:var(--cyan)">GUARD</span></span></div><div class="status">● LOCAL PROCESSING</div></header>
+<section class="hero"><div class="eyebrow">LUA / LUAU WORKSPACE</div><h1>Clean code.<br><span>Stay in control.</span></h1><p>A simple browser-based workspace for tidying Lua and Luau source files. Your code stays in this browser tab — it is not uploaded to a server.</p></section>
+<section class="panel">
+<div class="toolbar"><div class="tools"><label class="btn" for="file">↑ Upload .lua</label><input id="file" type="file" accept=".lua,.luau,.txt,text/plain" hidden><button class="btn" id="clean">Clean whitespace</button><button class="btn" id="clear">Clear</button></div><div class="tools"><button class="btn" id="copy">Copy output</button><button class="btn primary" id="download">↓ Download .lua</button></div></div>
+<div class="editor"><div class="pane"><div class="panehead"><span>INPUT SOURCE</span><span id="inLabel">0 lines</span></div><textarea id="input" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Paste your Lua or Luau source here..."></textarea></div><div class="pane"><div class="panehead"><span>CLEANED OUTPUT</span><span id="outLabel">Ready</span></div><textarea id="output" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Your cleaned source will appear here..." readonly></textarea></div></div>
+<div class="stats"><span>Input: <b id="charsIn">0</b> chars</span><span>Output: <b id="charsOut">0</b> chars</span><span>Lines: <b id="lines">0</b></span><span id="message" aria-live="polite">Ready when you are.</span></div>
+</section>
+<div class="notice"><strong>Privacy & limits:</strong> Processing happens locally in your browser. “Clean whitespace” removes trailing spaces and reduces excessive blank lines; it does not obfuscate, encrypt, secure, or change the logic of your code. Review the output before using it.</div>
+<footer> SYNAPSE GUARD · Built for straightforward Lua/Luau source cleanup </footer>
+</main>
+<script>
+const $=id=>document.getElementById(id), input=$('input'), output=$('output');
+function update(){ $('inLabel').textContent=(input.value?input.value.split(/\r\n|\r|\n/).length:0)+' lines';$('charsIn').textContent=input.value.length.toLocaleString();$('charsOut').textContent=output.value.length.toLocaleString();$('lines').textContent=output.value?(output.value.match(/\n/g)||[]).length+1:0; }
+input.addEventListener('input',()=>{update();$('message').textContent='Source edited.';});
+$('clean').onclick=()=>{const src=input.value;if(!src.trim()){$('message').textContent='Paste or upload some source first.';return;}output.value=src.replace(/[ \t]+$/gm,'').replace(/\n{3,}/g,'\n\n').replace(/^\s*\n/,'').replace(/\s*$/,'')+'\n';$('outLabel').textContent='Cleaned';update();$('message').textContent='Whitespace cleanup complete — review before use.';};
+$('clear').onclick=()=>{input.value='';output.value='';$('outLabel').textContent='Ready';update();$('message').textContent='Editor cleared.';};
+$('file').onchange=async e=>{const f=e.target.files[0];if(!f)return;input.value=await f.text();$('message').textContent='Loaded '+f.name;update();e.target.value='';};
+$('copy').onclick=async()=>{if(!output.value){$('message').textContent='Nothing to copy yet.';return;}try{await navigator.clipboard.writeText(output.value);$('message').textContent='Output copied.';}catch{$('message').textContent='Clipboard unavailable — select and copy the output manually.';}};
+$('download').onclick=()=>{if(!output.value){$('message').textContent='Clean some source first.';return;}const blob=new Blob([output.value],{type:'text/plain;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='synapse-cleaned.lua';a.click();URL.revokeObjectURL(url);$('message').textContent='Download started.';};
+update();
+</script></body></html>
