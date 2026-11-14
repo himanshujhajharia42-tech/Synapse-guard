@@ -47,7 +47,6 @@ function ready(req,res,next) {
   if (!schemaReady) schemaReady = initDb();
   schemaReady.then(()=>next()).catch(err=>{ console.error("DB init:",err.message); res.status(503).json({error:"Database is starting. Try again shortly."}); });
 }
-app.use("/api", ready);
 const attempts = new Map();
 async function authenticate(req,res,next) {
   const raw = clean(req.headers.authorization).replace(/^Bearer\s+/i,"");
@@ -71,7 +70,7 @@ async function authenticate(req,res,next) {
     next();
   } catch(e) { console.error(e); res.status(500).json({error:"Could not verify project key."}); }
 }
-app.get("/api/health",(req,res)=>res.json({ok:true,service:"Synapse Guard"}));
+app.get("/api/health",async(req,res)=>{try{await pool.query("SELECT 1");res.json({ok:true,database:"connected",service:"Synapse Guard"});}catch(e){console.error("Health check:",e.message);res.status(503).json({ok:false,database:"unavailable",service:"Synapse Guard"});}});
 app.post("/api/projects", ready, async (req,res)=>{
   const name = clean(req.body.name);
   if (name.length < 2 || name.length > 60) return res.status(400).json({error:"Project name must be 2–60 characters."});
