@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: synapse-guard-app
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm install
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: synapse-guard-db
+          property: connectionString
+
+databases:
+  - name: synapse-guard-db
+    plan: free
+    region: singapore
