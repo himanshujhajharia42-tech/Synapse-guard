@@ -317,7 +317,7 @@ app.post("/api/license/validate", ready, async (req, res) => {
     } else {
       await client.query("UPDATE license_keys SET last_validated_at=NOW() WHERE id=$1", [license.id]);
     }
-    await client.query("INSERT INTO events(project_id,event_type) VALUES($1,'license_validated')");
+    await client.query("INSERT INTO events(project_id,event_type) VALUES($1,$2)", [projectId, "license_validated"]);
     await client.query("COMMIT");
     res.json({ valid: true, duration: license.duration, expiresAt: license.expires_at, hwidBound: true });
   } catch (e) {
