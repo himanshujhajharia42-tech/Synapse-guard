@@ -51,6 +51,15 @@ async function initDb() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+  await pool.query(`
+    ALTER TABLE license_keys ADD COLUMN IF NOT EXISTS duration TEXT NOT NULL DEFAULT 'lifetime';
+    ALTER TABLE license_keys ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+    ALTER TABLE license_keys ADD COLUMN IF NOT EXISTS hwid_hash TEXT;
+    ALTER TABLE license_keys ADD COLUMN IF NOT EXISTS hwid_reset_count INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE license_keys ADD COLUMN IF NOT EXISTS hwid_reset_limit INTEGER NOT NULL DEFAULT 1;
+    ALTER TABLE license_keys ADD COLUMN IF NOT EXISTS bound_at TIMESTAMPTZ;
+    ALTER TABLE license_keys ADD COLUMN IF NOT EXISTS last_validated_at TIMESTAMPTZ;
+  `);
 }
 
 function ready(req, res, next) {
@@ -129,7 +138,7 @@ app.get("/api/dashboard", ready, authenticate, async (req, res) => {
     const id = req.project.id;
     const [allow, keys, blocked, events, scripts] = await Promise.all([
       pool.query("SELECT id,subject,created_at FROM allowlist WHERE project_id=$1 ORDER BY created_at DESC LIMIT 200", [id]),
-      pool.query("SELECT id,license_key,status,created_at FROM license_keys WHERE project_id=$1 ORDER BY created_at DESC LIMIT 200", [id]),
+      pool.query("SELECT id,license_key,status,duration,expires_at,(hwid_hash IS NOT NULL) AS hwid_bound,hwid_reset_count,hwid_reset_limit,bound_at,created_at FROM license_keys WHERE project_id=$1 ORDER BY created_at DESC LIMIT 200", [id]),
       pool.query("SELECT id,subject,reason,created_at FROM blacklist WHERE project_id=$1 ORDER BY created_at DESC LIMIT 200", [id]),
       pool.query("SELECT event_type,COUNT(*)::int AS total FROM events WHERE project_id=$1 GROUP BY event_type", [id]),
       pool.query("SELECT id,title,content,version,created_at,updated_at FROM scripts WHERE project_id=$1 ORDER BY updated_at DESC LIMIT 100", [id])
@@ -180,22 +189,139 @@ app.delete("/api/whitelist/:id", ready, authenticate, async (req, res) => {
   res.json({ ok: true });
 });
 
+const LICENSE_DAYS = { weekly: 7, monthly: 30, yearly: 365, lifetime: null };
+
 app.post("/api/keys", ready, authenticate, async (req, res) => {
+  const duration = clean(req.body.duration || "monthly").toLowerCase();
+  if (!Object.prototype.hasOwnProperty.call(LICENSE_DAYS, duration)) {
+    return res.status(400).json({ error: "Choose weekly, monthly, yearly or lifetime." });
+  }
   const licenseKey = "LIC-" + crypto.randomBytes(12).toString("hex").toUpperCase();
   try {
     const r = await pool.query(
-      "INSERT INTO license_keys(project_id,license_key) VALUES($1,$2) RETURNING *",
-      [req.project.id, licenseKey]
+      `INSERT INTO license_keys(project_id,license_key,duration,expires_at,hwid_reset_limit)
+       VALUES($1,$2,$3,CASE WHEN $4::int IS NULL THEN NULL ELSE NOW()+($4::int * INTERVAL '1 day') END,1)
+       RETURNING id,license_key,status,duration,expires_at,hwid_reset_count,hwid_reset_limit,created_at`,
+      [req.project.id, licenseKey, duration, LICENSE_DAYS[duration]]
     );
     await pool.query("INSERT INTO events(project_id,event_type) VALUES($1,'license_created')", [req.project.id]);
     res.status(201).json({ item: r.rows[0] });
-  } catch (e) { res.status(500).json({ error: "Could not create license key." }); }
+  } catch (e) { console.error(e); res.status(500).json({ error: "Could not create license key." }); }
 });
 
 app.patch("/api/keys/:id", ready, authenticate, async (req, res) => {
-  const status = req.body.status === "revoked" ? "revoked" : "active";
-  await pool.query("UPDATE license_keys SET status=$1 WHERE id=$2 AND project_id=$3", [status, req.params.id, req.project.id]);
-  res.json({ ok: true });
+  const status = req.body.status === "revoked" ? "revoked" : req.body.status === "active" ? "active" : null;
+  const resetLimit = req.body.hwid_reset_limit;
+  if (status === null && resetLimit === undefined) return res.status(400).json({ error: "No valid license change supplied." });
+  if (resetLimit !== undefined && (!Number.isInteger(resetLimit) || resetLimit < 0 || resetLimit > 10)) {
+    return res.status(400).json({ error: "HWID reset limit must be between 0 and 10." });
+  }
+  try {
+    const r = await pool.query(
+      `UPDATE license_keys SET
+       status=COALESCE($1,status),
+       hwid_reset_limit=COALESCE($2,hwid_reset_limit)
+       WHERE id=$3 AND project_id=$4 RETURNING id,status,hwid_reset_limit`,
+      [status, resetLimit === undefined ? null : resetLimit, req.params.id, req.project.id]
+    );
+    if (!r.rowCount) return res.status(404).json({ error: "License not found." });
+    await pool.query("INSERT INTO events(project_id,event_type) VALUES($1,'license_updated')", [req.project.id]);
+    res.json({ item: r.rows[0] });
+  } catch (e) { res.status(500).json({ error: "Could not update license." }); }
+});
+
+app.post("/api/keys/:id/reset-hwid", ready, authenticate, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const found = await client.query(
+      "SELECT id,hwid_reset_count,hwid_reset_limit FROM license_keys WHERE id=$1 AND project_id=$2 FOR UPDATE",
+      [req.params.id, req.project.id]
+    );
+    if (!found.rowCount) { await client.query("ROLLBACK"); return res.status(404).json({ error: "License not found." }); }
+    const license = found.rows[0];
+    if (license.hwid_reset_count >= license.hwid_reset_limit) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "This license has used all allowed HWID resets. Increase its reset limit first." });
+    }
+    await client.query(
+      "UPDATE license_keys SET hwid_hash=NULL,bound_at=NULL,hwid_reset_count=hwid_reset_count+1 WHERE id=$1",
+      [license.id]
+    );
+    await client.query("INSERT INTO events(project_id,event_type) VALUES($1,'license_hwid_reset')", [req.project.id]);
+    await client.query("COMMIT");
+    res.json({ ok: true, resetsUsed: license.hwid_reset_count + 1, resetsAllowed: license.hwid_reset_limit });
+  } catch (e) {
+    await client.query("ROLLBACK");
+    console.error(e);
+    res.status(500).json({ error: "Could not reset this license HWID." });
+  } finally { client.release(); }
+});
+
+app.post("/api/keys/:id/extend", ready, authenticate, async (req, res) => {
+  const duration = clean(req.body.duration || "").toLowerCase();
+  if (!Object.prototype.hasOwnProperty.call(LICENSE_DAYS, duration)) return res.status(400).json({ error: "Choose a valid extension duration." });
+  try {
+    const days = LICENSE_DAYS[duration];
+    const r = await pool.query(
+      `UPDATE license_keys SET
+       duration=$1,
+       expires_at=CASE WHEN $1='lifetime' THEN NULL
+         ELSE GREATEST(COALESCE(expires_at,NOW()),NOW()) + ($2::int * INTERVAL '1 day') END,
+       status='active'
+       WHERE id=$3 AND project_id=$4
+       RETURNING id,status,duration,expires_at`,
+      [duration, days || 0, req.params.id, req.project.id]
+    );
+    if (!r.rowCount) return res.status(404).json({ error: "License not found." });
+    await pool.query("INSERT INTO events(project_id,event_type) VALUES($1,'license_extended')", [req.project.id]);
+    res.json({ item: r.rows[0] });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Could not extend license." }); }
+});
+
+// Public runtime check: project ID is public; license key and client HWID are validated server-side.
+// The HWID is hashed before storage and is not returned by the dashboard or this endpoint.
+app.post("/api/license/validate", ready, async (req, res) => {
+  const projectId = clean(req.body.projectId);
+  const licenseKey = clean(req.body.licenseKey).toUpperCase();
+  const hwid = clean(req.body.hwid);
+  if (!/^[0-9a-f-]{36}$/i.test(projectId) || licenseKey.length < 12 || licenseKey.length > 100 || hwid.length < 8 || hwid.length > 200) {
+    return res.status(400).json({ valid: false, reason: "invalid_request" });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const found = await client.query(
+      "SELECT id,status,duration,expires_at,hwid_hash FROM license_keys WHERE project_id=$1 AND license_key=$2 FOR UPDATE",
+      [projectId, licenseKey]
+    );
+    if (!found.rowCount) { await client.query("ROLLBACK"); return res.status(404).json({ valid: false, reason: "license_not_found" }); }
+    const license = found.rows[0];
+    if (license.status !== "active") { await client.query("ROLLBACK"); return res.status(403).json({ valid: false, reason: "license_revoked" }); }
+    if (license.expires_at && new Date(license.expires_at).getTime() <= Date.now()) {
+      await client.query("UPDATE license_keys SET status='expired' WHERE id=$1", [license.id]);
+      await client.query("INSERT INTO events(project_id,event_type) VALUES($1,'license_expired')", [projectId]);
+      await client.query("COMMIT");
+      return res.status(403).json({ valid: false, reason: "license_expired" });
+    }
+    const fingerprint = hashKey(hwid);
+    if (license.hwid_hash && license.hwid_hash !== fingerprint) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ valid: false, reason: "hwid_mismatch" });
+    }
+    if (!license.hwid_hash) {
+      await client.query("UPDATE license_keys SET hwid_hash=$1,bound_at=NOW(),last_validated_at=NOW() WHERE id=$2", [fingerprint, license.id]);
+    } else {
+      await client.query("UPDATE license_keys SET last_validated_at=NOW() WHERE id=$1", [license.id]);
+    }
+    await client.query("INSERT INTO events(project_id,event_type) VALUES($1,'license_validated')");
+    await client.query("COMMIT");
+    res.json({ valid: true, duration: license.duration, expiresAt: license.expires_at, hwidBound: true });
+  } catch (e) {
+    await client.query("ROLLBACK");
+    console.error(e);
+    res.status(500).json({ valid: false, reason: "validation_unavailable" });
+  } finally { client.release(); }
 });
 
 app.post("/api/blacklist", ready, authenticate, async (req, res) => {
