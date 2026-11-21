@@ -136,6 +136,7 @@ app.post("/api/auth", ready, authenticate, (req, res) => res.json({ project: req
 app.get("/api/dashboard", ready, authenticate, async (req, res) => {
   try {
     const id = req.project.id;
+    await pool.query("UPDATE license_keys SET status='expired' WHERE project_id=$1 AND status='active' AND expires_at IS NOT NULL AND expires_at<=NOW()", [id]);
     const [allow, keys, blocked, events, scripts] = await Promise.all([
       pool.query("SELECT id,subject,created_at FROM allowlist WHERE project_id=$1 ORDER BY created_at DESC LIMIT 200", [id]),
       pool.query("SELECT id,license_key,status,duration,expires_at,(hwid_hash IS NOT NULL) AS hwid_bound,hwid_reset_count,hwid_reset_limit,bound_at,created_at FROM license_keys WHERE project_id=$1 ORDER BY created_at DESC LIMIT 200", [id]),
@@ -196,13 +197,15 @@ app.post("/api/keys", ready, authenticate, async (req, res) => {
   if (!Object.prototype.hasOwnProperty.call(LICENSE_DAYS, duration)) {
     return res.status(400).json({ error: "Choose weekly, monthly, yearly or lifetime." });
   }
+  const resetLimit = req.body.hwid_reset_limit === undefined ? 1 : Number(req.body.hwid_reset_limit);
+  if (!Number.isInteger(resetLimit) || resetLimit < 0 || resetLimit > 10) return res.status(400).json({ error: "HWID reset limit must be between 0 and 10." });
   const licenseKey = "LIC-" + crypto.randomBytes(12).toString("hex").toUpperCase();
   try {
     const r = await pool.query(
       `INSERT INTO license_keys(project_id,license_key,duration,expires_at,hwid_reset_limit)
-       VALUES($1,$2,$3,CASE WHEN $4::int IS NULL THEN NULL ELSE NOW()+($4::int * INTERVAL '1 day') END,1)
+       VALUES($1,$2,$3,CASE WHEN $4::int IS NULL THEN NULL ELSE NOW()+($4::int * INTERVAL '1 day') END,$5)
        RETURNING id,license_key,status,duration,expires_at,hwid_reset_count,hwid_reset_limit,created_at`,
-      [req.project.id, licenseKey, duration, LICENSE_DAYS[duration]]
+      [req.project.id, licenseKey, duration, LICENSE_DAYS[duration], resetLimit]
     );
     await pool.query("INSERT INTO events(project_id,event_type) VALUES($1,'license_created')", [req.project.id]);
     res.status(201).json({ item: r.rows[0] });
