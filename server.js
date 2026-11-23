@@ -380,4 +380,9 @@ app.delete("/api/scripts/:id", ready, authenticate, async (req, res) => {
 });
 
 app.get("*", (req, res) => res.sendFile(path.join(__dirname, "index.html")));
-app.listen(port, () => console.log("Synapse Guard listening on", port));
+app.listen(port, () => {
+  console.log("Synapse Guard listening on", port);
+  schemaReady = initDb();
+  schemaReady.then(() => require("./discord-bot").startDiscordBot(pool))
+    .catch(err => console.error("Discord bot startup:", err.message));
+});
