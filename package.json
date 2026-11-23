@@ -12,6 +12,7 @@
   "dependencies": {
     "express": "^4.21.2",
     "pg": "^8.13.1",
-    "helmet": "^8.0.0"
+    "helmet": "^8.0.0",
+    "discord.js": "^14.22.1"
   }
 }
