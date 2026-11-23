@@ -42,74 +42,75 @@ async function startDiscordBot(pool) {
     if(!i.isChatInputCommand())return;
     const n=i.commandName;
     try{
-      if(n==="help")return i.reply({ephemeral:true,content:"Synapse Guard commands: /connect-project, /project, /key-create, /key-list, /key-info, /key-revoke, /key-activate, /key-reset-hwid, /key-extend, /whitelist-add, /whitelist-remove, /blacklist-add, /blacklist-remove, /stats. All management commands are owner-only and replies are private."});
+      await i.deferReply({ephemeral:true});
+      if(n==="help")return i.editReply({content:"Synapse Guard commands: /connect-project, /project, /key-create, /key-list, /key-info, /key-revoke, /key-activate, /key-reset-hwid, /key-extend, /whitelist-add, /whitelist-remove, /blacklist-add, /blacklist-remove, /stats. All management commands are owner-only and replies are private."});
       if(n==="connect-project"){
-        if(i.user.id!==owner)return i.reply({ephemeral:true,content:"Only the configured bot owner can connect a project."});
+        if(i.user.id!==owner)return i.editReply({content:"Only the configured bot owner can connect a project."});
         const code=clean(i.options.getString("setup_code"));
         const used=await pool.query("UPDATE discord_connect_codes SET used_at=NOW() WHERE code_hash=$1 AND used_at IS NULL AND expires_at>NOW() RETURNING project_id",[hash(code)]);
-        if(!used.rowCount)return i.reply({ephemeral:true,content:"That setup code is invalid, expired, or already used. Generate a new code on the website."});
+        if(!used.rowCount)return i.editReply({content:"That setup code is invalid, expired, or already used. Generate a new code on the website."});
         const pid=used.rows[0].project_id;
         const p=await pool.query("SELECT id,name FROM projects WHERE id=$1",[pid]);
-        if(!p.rowCount)return i.reply({ephemeral:true,content:"Project not found."});
+        if(!p.rowCount)return i.editReply({content:"Project not found."});
         await pool.query("INSERT INTO discord_integrations(project_id,owner_user_id,guild_id) VALUES($1,$2,$3) ON CONFLICT(project_id) DO UPDATE SET owner_user_id=EXCLUDED.owner_user_id,guild_id=EXCLUDED.guild_id,connected_at=NOW()",[pid,owner,i.guildId||null]);
         await log(pid,"discord_project_connected");
-        return i.reply({ephemeral:true,content:"Connected project "+p.rows[0].name+". The one-time code has been consumed."});
+        return i.editReply({content:"Connected project "+p.rows[0].name+". The one-time code has been consumed."});
       }
-      if(i.user.id!==owner)return i.reply({ephemeral:true,content:"You are not authorized to manage this project."});
+      if(i.user.id!==owner)return i.editReply({content:"You are not authorized to manage this project."});
       const p=await findProject(i);
-      if(!p)return i.reply({ephemeral:true,content:"No project connected here. Bot owner: run /connect-project first."});
+      if(!p)return i.editReply({content:"No project connected here. Bot owner: run /connect-project first."});
       const pid=p.id;
-      if(n==="project")return i.reply({ephemeral:true,content:"Connected project: "+p.name+" | "+pid});
+      if(n==="project")return i.editReply({content:"Connected project: "+p.name+" | "+pid});
       if(n==="key-create"){
         const d=i.options.getString("duration"), key="LIC-"+crypto.randomBytes(12).toString("hex").toUpperCase();
         const r=await pool.query("INSERT INTO license_keys(project_id,license_key,duration,expires_at,hwid_reset_limit) VALUES($1,$2,$3,CASE WHEN $4::int IS NULL THEN NULL ELSE NOW()+($4::int*INTERVAL '1 day') END,1) RETURNING expires_at",[pid,key,d,DAYS[d]]);
         await log(pid,"license_created");
-        return i.reply({ephemeral:true,content:"License created: "+key+" | Plan: "+d+" | Expiry: "+(r.rows[0].expires_at?new Date(r.rows[0].expires_at).toUTCString():"Never")+". Copy and share it securely."});
+        return i.editReply({content:"License created: "+key+" | Plan: "+d+" | Expiry: "+(r.rows[0].expires_at?new Date(r.rows[0].expires_at).toUTCString():"Never")+". Copy and share it securely."});
       }
       if(n==="key-list"){
         const lim=i.options.getInteger("limit")||10,r=await pool.query("SELECT license_key,status,duration,expires_at FROM license_keys WHERE project_id=$1 ORDER BY created_at DESC LIMIT $2",[pid,lim]);
         const lines=r.rows.map(k=>k.license_key+" | "+k.status+" | "+k.duration+" | "+(k.expires_at?new Date(k.expires_at).toLocaleDateString():"never expires"));
-        return i.reply({ephemeral:true,content:lines.length?lines.join("\n"):"No licenses yet."});
+        return i.editReply({content:lines.length?lines.join("\n"):"No licenses yet."});
       }
       if(n==="key-info"){
-        const k=await findKey(pid,i.options.getString("license_key"));if(!k)return i.reply({ephemeral:true,content:"License not found."});
-        return i.reply({ephemeral:true,content:k.license_key+" | "+k.status+" | "+k.duration+" | Expiry: "+(k.expires_at?new Date(k.expires_at).toUTCString():"Never")+" | HWID bound: "+!!k.hwid_hash+" | Resets: "+k.hwid_reset_count+"/"+k.hwid_reset_limit});
+        const k=await findKey(pid,i.options.getString("license_key"));if(!k)return i.editReply({content:"License not found."});
+        return i.editReply({content:k.license_key+" | "+k.status+" | "+k.duration+" | Expiry: "+(k.expires_at?new Date(k.expires_at).toUTCString():"Never")+" | HWID bound: "+!!k.hwid_hash+" | Resets: "+k.hwid_reset_count+"/"+k.hwid_reset_limit});
       }
       if(n==="key-revoke"||n==="key-activate"){
-        const k=await findKey(pid,i.options.getString("license_key"));if(!k)return i.reply({ephemeral:true,content:"License not found."});
+        const k=await findKey(pid,i.options.getString("license_key"));if(!k)return i.editReply({content:"License not found."});
         const status=n==="key-revoke"?"revoked":"active";await pool.query("UPDATE license_keys SET status=$1 WHERE id=$2",[status,k.id]);await log(pid,"license_updated");
-        return i.reply({ephemeral:true,content:"License status updated: "+status});
+        return i.editReply({content:"License status updated: "+status});
       }
       if(n==="key-reset-hwid"){
-        const k=await findKey(pid,i.options.getString("license_key"));if(!k)return i.reply({ephemeral:true,content:"License not found."});
-        if(!k.hwid_hash)return i.reply({ephemeral:true,content:"This license is not device-bound."});
-        if(k.hwid_reset_count>=k.hwid_reset_limit)return i.reply({ephemeral:true,content:"Reset limit reached. Increase the allowance in the website first."});
+        const k=await findKey(pid,i.options.getString("license_key"));if(!k)return i.editReply({content:"License not found."});
+        if(!k.hwid_hash)return i.editReply({content:"This license is not device-bound."});
+        if(k.hwid_reset_count>=k.hwid_reset_limit)return i.editReply({content:"Reset limit reached. Increase the allowance in the website first."});
         await pool.query("UPDATE license_keys SET hwid_hash=NULL,bound_at=NULL,hwid_reset_count=hwid_reset_count+1 WHERE id=$1",[k.id]);await log(pid,"license_hwid_reset");
-        return i.reply({ephemeral:true,content:"HWID reset. Used "+(k.hwid_reset_count+1)+" of "+k.hwid_reset_limit+" allowed resets."});
+        return i.editReply({content:"HWID reset. Used "+(k.hwid_reset_count+1)+" of "+k.hwid_reset_limit+" allowed resets."});
       }
       if(n==="key-extend"){
-        const k=await findKey(pid,i.options.getString("license_key"));if(!k)return i.reply({ephemeral:true,content:"License not found."});
+        const k=await findKey(pid,i.options.getString("license_key"));if(!k)return i.editReply({content:"License not found."});
         const d=i.options.getString("duration"),days=DAYS[d];
         const r=await pool.query("UPDATE license_keys SET duration=$1,expires_at=CASE WHEN $1='lifetime' THEN NULL ELSE GREATEST(COALESCE(expires_at,NOW()),NOW())+($2::int*INTERVAL '1 day') END,status='active' WHERE id=$3 RETURNING expires_at",[d,days||0,k.id]);await log(pid,"license_extended");
-        return i.reply({ephemeral:true,content:"License extended. New expiry: "+(r.rows[0].expires_at?new Date(r.rows[0].expires_at).toUTCString():"Never")});
+        return i.editReply({content:"License extended. New expiry: "+(r.rows[0].expires_at?new Date(r.rows[0].expires_at).toUTCString():"Never")});
       }
       if(n==="whitelist-add"||n==="blacklist-add"){
-        const subject=clean(i.options.getString("user_id"));if(!subject||subject.length>160)return i.reply({ephemeral:true,content:"Invalid user identifier."});
+        const subject=clean(i.options.getString("user_id"));if(!subject||subject.length>160)return i.editReply({content:"Invalid user identifier."});
         if(n==="whitelist-add"){await pool.query("INSERT INTO allowlist(project_id,subject) VALUES($1,$2) ON CONFLICT DO NOTHING",[pid,subject]);await log(pid,"whitelist_added");}
         else{const reason=clean(i.options.getString("reason")||"").slice(0,240);await pool.query("INSERT INTO blacklist(project_id,subject,reason) VALUES($1,$2,$3) ON CONFLICT(project_id,subject) DO UPDATE SET reason=EXCLUDED.reason",[pid,subject,reason]);await log(pid,"blacklist_added");}
-        return i.reply({ephemeral:true,content:"Added "+subject+" to "+(n==="whitelist-add"?"whitelist":"blacklist")+"."});
+        return i.editReply({content:"Added "+subject+" to "+(n==="whitelist-add"?"whitelist":"blacklist")+"."});
       }
       if(n==="whitelist-remove"||n==="blacklist-remove"){
         const table=n==="whitelist-remove"?"allowlist":"blacklist",subject=clean(i.options.getString("user_id"));
         const r=await pool.query("DELETE FROM "+table+" WHERE project_id=$1 AND subject=$2",[pid,subject]);
-        return i.reply({ephemeral:true,content:r.rowCount?"Removed "+subject+".":"No matching user found."});
+        return i.editReply({content:r.rowCount?"Removed "+subject+".":"No matching user found."});
       }
       if(n==="stats"){
         const [k,w,b,a]=await Promise.all([pool.query("SELECT COUNT(*)::int total,COUNT(*) FILTER(WHERE status='active')::int active FROM license_keys WHERE project_id=$1",[pid]),pool.query("SELECT COUNT(*)::int total FROM allowlist WHERE project_id=$1",[pid]),pool.query("SELECT COUNT(*)::int total FROM blacklist WHERE project_id=$1",[pid]),pool.query("SELECT access_count FROM projects WHERE id=$1",[pid])]);
-        return i.reply({ephemeral:true,content:p.name+" stats | Licenses: "+k.rows[0].total+" ("+k.rows[0].active+" active) | Whitelist: "+w.rows[0].total+" | Blacklist: "+b.rows[0].total+" | Project accesses: "+a.rows[0].access_count});
+        return i.editReply({content:p.name+" stats | Licenses: "+k.rows[0].total+" ("+k.rows[0].active+" active) | Whitelist: "+w.rows[0].total+" | Blacklist: "+b.rows[0].total+" | Project accesses: "+a.rows[0].access_count});
       }
-      return i.reply({ephemeral:true,content:"Unknown command. Use /help."});
-    }catch(e){console.error("Discord command error:",e);const msg="Command failed. Check Synapse Guard server logs.";if(i.replied||i.deferred)await i.followUp({ephemeral:true,content:msg}).catch(()=>{});else await i.reply({ephemeral:true,content:msg}).catch(()=>{});}
+      return i.editReply({content:"Unknown command. Use /help."});
+    }catch(e){console.error("Discord command error:",e);const msg="Command failed. Check Synapse Guard server logs.";if(i.replied||i.deferred)await i.followUp({ephemeral:true,content:msg}).catch(()=>{});else await i.editReply({content:msg}).catch(()=>{});}
   });
   await bot.login(token);
   console.log("Synapse Guard Discord bot connected as",bot.user.tag);
