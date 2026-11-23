@@ -50,6 +50,14 @@ async function initDb() {
       title TEXT NOT NULL, content TEXT NOT NULL DEFAULT '', version INTEGER NOT NULL DEFAULT 1,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS discord_integrations (
+      project_id UUID PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+      owner_user_id TEXT NOT NULL, guild_id TEXT, connected_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS discord_connect_codes (
+      project_id UUID PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+      code_hash TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL, used_at TIMESTAMPTZ
+    );
   `);
   await pool.query(`
     ALTER TABLE license_keys ADD COLUMN IF NOT EXISTS duration TEXT NOT NULL DEFAULT 'lifetime';
@@ -132,6 +140,21 @@ app.post("/api/projects", ready, async (req, res) => {
 });
 
 app.post("/api/auth", ready, authenticate, (req, res) => res.json({ project: req.project }));
+
+app.post("/api/discord/connect-code", ready, authenticate, async (req, res) => {
+  try {
+    const code = crypto.randomBytes(18).toString("base64url");
+    await pool.query(
+      "INSERT INTO discord_connect_codes(project_id,code_hash,expires_at,used_at) VALUES($1,$2,NOW()+INTERVAL '10 minutes',NULL) ON CONFLICT(project_id) DO UPDATE SET code_hash=EXCLUDED.code_hash,expires_at=EXCLUDED.expires_at,used_at=NULL",
+      [req.project.id, hashKey(code)]
+    );
+    await pool.query("INSERT INTO events(project_id,event_type) VALUES($1,'discord_setup_code_created')", [req.project.id]);
+    res.json({ code, expiresInMinutes: 10 });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Could not create a Discord setup code." });
+  }
+});
 
 app.get("/api/dashboard", ready, authenticate, async (req, res) => {
   try {
