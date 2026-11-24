@@ -210,6 +210,21 @@ app.post("/api/projects", ready, async (req, res) => {
   finally{client.release();}
 });
 
+app.get("/api/projects/mine", ready, async (req,res) => {
+  const session=readSession(req);
+  if(!session)return res.status(401).json({error:"Discord sign-in is required."});
+  const r=await pool.query("SELECT id,name,created_at,access_mode,hwid_lock FROM projects WHERE owner_discord_id=$1 ORDER BY created_at DESC",[session.discordId]);
+  res.json({projects:r.rows});
+});
+app.post("/api/projects/:id/select", ready, async (req,res) => {
+  const session=readSession(req);
+  if(!session)return res.status(401).json({error:"Discord sign-in is required."});
+  const r=await pool.query("SELECT id,name FROM projects WHERE id=$1 AND owner_discord_id=$2",[req.params.id,session.discordId]);
+  if(!r.rowCount)return res.status(404).json({error:"Project not found."});
+  const cookie=signSession({discordId:session.discordId,projectId:r.rows[0].id,exp:Math.floor(Date.now()/1000)+604800});
+  res.cookie("sg_session",cookie,{httpOnly:true,secure:true,sameSite:"lax",path:"/",maxAge:604800000});
+  res.json({project:r.rows[0]});
+});
 app.post("/api/auth", ready, authenticate, (req, res) => res.json({ project: req.project }));
 app.get("/api/me", ready, authenticate, async (req,res) => {
   const session=readSession(req);
