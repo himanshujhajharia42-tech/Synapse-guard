@@ -12,7 +12,7 @@ const pool = new Pool({
     ? { rejectUnauthorized: false } : false
 });
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "12mb" }));
 
 const hashKey = value => crypto.createHash("sha256").update(value).digest("hex");
 const newKey = () => "sg_live_" + crypto.randomBytes(32).toString("base64url");
