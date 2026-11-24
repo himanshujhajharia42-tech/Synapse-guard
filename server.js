@@ -210,21 +210,6 @@ app.get("/api/me", ready, authenticate, async (req,res) => {
   res.json({project:req.project,account:r.rows[0]||null});
 });
 
-app.post("/api/discord/connect-code", ready, authenticate, async (req, res) => {
-  try {
-    const code = crypto.randomBytes(18).toString("base64url");
-    await pool.query(
-      "INSERT INTO discord_connect_codes(project_id,code_hash,expires_at,used_at) VALUES($1,$2,NOW()+INTERVAL '10 minutes',NULL) ON CONFLICT(project_id) DO UPDATE SET code_hash=EXCLUDED.code_hash,expires_at=EXCLUDED.expires_at,used_at=NULL",
-      [req.project.id, hashKey(code)]
-    );
-    await pool.query("INSERT INTO events(project_id,event_type) VALUES($1,'discord_setup_code_created')", [req.project.id]);
-    res.json({ code, expiresInMinutes: 10 });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: "Could not create a Discord setup code." });
-  }
-});
-
 app.get("/api/dashboard", ready, authenticate, async (req, res) => {
   try {
     const id = req.project.id;
