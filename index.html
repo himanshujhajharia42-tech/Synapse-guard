@@ -295,7 +295,7 @@ $("getStarted").onclick=showAuth;$("topStart").onclick=showAuth;$("previewStart"
 $("discordLogin").onclick=()=>{window.location.href="/auth/discord"};
 $("apiKeyChoice").onclick=()=>{$("apiKeyForm").classList.remove("hidden");$("apiKey").focus()};
 $("signInSubmit").onclick=async()=>{const key=$("apiKey").value.trim();if(!key){$("authMessage").textContent="Enter your project API key.";return}try{await enterProject(key)}catch(e){projectKey="";$("authMessage").textContent=e.message}};
-document.querySelectorAll(".nav[data-page]").forEach(b=>b.addEventListener("click",()=>go(b.dataset.page)));\n$("newProjectAccess")?.addEventListener("change",()=>{$("newProjectHwidWrap").classList.toggle("hidden",$("newProjectAccess").value!=="key")});
+document.querySelectorAll(".nav[data-page]").forEach(b=>b.addEventListener("click",()=>go(b.dataset.page)));
 $("logout").onclick=async()=>{try{await fetch("/auth/logout",{method:"POST"})}catch{}home()};
 if(new URLSearchParams(location.search).get("login")==="discord"){history.replaceState({},document.title,location.pathname);enterProject("").catch(e=>{showAuth();$("authMessage").textContent=e.message})}
 </script>
