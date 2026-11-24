@@ -330,6 +330,26 @@ $("apiKeyChoice").onclick=()=>{$("apiKeyForm").classList.remove("hidden");$("api
 $("signInSubmit").onclick=async()=>{const key=$("apiKey").value.trim();if(!key){$("authMessage").textContent="Enter your project API key.";return}try{await enterProject(key)}catch(e){projectKey="";$("authMessage").textContent=e.message}};
 document.querySelectorAll(".nav[data-page]").forEach(b=>b.addEventListener("click",()=>go(b.dataset.page)));
 $("logout").onclick=async()=>{try{await fetch("/auth/logout",{method:"POST"})}catch{}home()};
-if(new URLSearchParams(location.search).get("login")==="discord"){history.replaceState({},document.title,location.pathname);enterProject("").catch(e=>{showAuth();$("authMessage").textContent=e.message})}
+// Discord session bootstrap is handled by the isolated script below.
+</script>
+<script>
+(function(){
+  if(new URLSearchParams(window.location.search).get("login")!=="discord") return;
+  const landing=document.getElementById("landing");
+  const auth=document.getElementById("auth");
+  const message=document.getElementById("authMessage");
+  if(landing) landing.classList.add("hidden");
+  if(auth) auth.classList.add("active");
+  if(message) message.textContent="Finishing Discord sign-in…";
+  try { history.replaceState({},document.title,window.location.pathname); } catch(e) {}
+  Promise.resolve().then(function(){
+    if(typeof enterProject!=="function") throw new Error("Workspace loader did not initialize. Refresh the page.");
+    return enterProject("");
+  }).catch(function(error){
+    if(landing) landing.classList.add("hidden");
+    if(auth) auth.classList.add("active");
+    if(message) message.textContent=error && error.message ? error.message : "Could not load your Discord workspace. Please try again.";
+  });
+})();
 </script>
 </body></html>
