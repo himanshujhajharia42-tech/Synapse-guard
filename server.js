@@ -239,13 +239,15 @@ app.get("/api/dashboard", ready, authenticate, async (req, res) => {
 });
 
 app.patch("/api/project", ready, authenticate, async (req, res) => {
-  const name = clean(req.body.name);
-  if (name.length < 2 || name.length > 60) return res.status(400).json({ error: "Project name must be 2–60 characters." });
-  try {
-    const result = await pool.query("UPDATE projects SET name=$1 WHERE id=$2 RETURNING id,name,created_at,access_count", [name, req.project.id]);
-    await pool.query("INSERT INTO events(project_id,event_type) VALUES($1,'project_renamed')", [req.project.id]);
-    res.json({ project: result.rows[0] });
-  } catch (e) { res.status(500).json({ error: "Could not update project name." }); }
+  const name=clean(req.body.name);
+  if(name.length<2||name.length>60)return res.status(400).json({error:"Project name must be 2–60 characters."});
+  const accessMode=req.body.accessMode==="public"?"public":"key";
+  const hwidLock=accessMode==="key"&&req.body.hwidLock!==false;
+  try{
+    const result=await pool.query("UPDATE projects SET name=$1,access_mode=$2,hwid_lock=$3 WHERE id=$4 RETURNING id,name,created_at,access_count,access_mode,hwid_lock",[name,accessMode,hwidLock,req.project.id]);
+    await pool.query("INSERT INTO events(project_id,event_type) VALUES($1,'project_settings_updated')",[req.project.id]);
+    res.json({project:result.rows[0]});
+  }catch(e){res.status(500).json({error:"Could not update project settings."});}
 });
 
 app.post("/api/project/rotate-key", ready, authenticate, async (req, res) => {
