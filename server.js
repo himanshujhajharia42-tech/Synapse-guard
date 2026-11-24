@@ -124,7 +124,6 @@ async function authenticate(req, res, next) {
 
 
 const APP_URL = (process.env.APP_URL || "https://synapse-guard-app.onrender.com").replace(/\/$/, "");
-const oauthStates = new Map();
 function signSession(payload) {
   const body=Buffer.from(JSON.stringify(payload)).toString("base64url");
   const secret=process.env.SESSION_SECRET||process.env.DISCORD_CLIENT_SECRET||"";
@@ -143,16 +142,19 @@ function readSession(req) {
 app.get("/auth/discord",(req,res)=>{
   const clientId=clean(process.env.DISCORD_CLIENT_ID),secret=clean(process.env.DISCORD_CLIENT_SECRET);
   if(!clientId||!secret)return res.status(503).send("Discord login is not configured. Add the Discord OAuth client ID and secret in Render.");
-  const state=crypto.randomBytes(24).toString("base64url");oauthStates.set(state,Date.now()+600000);
-  for(const [k,v] of oauthStates)if(v<Date.now())oauthStates.delete(k);
+  const state=crypto.randomBytes(24).toString("base64url");
+  res.cookie("sg_oauth_state",state,{httpOnly:true,secure:true,sameSite:"lax",path:"/auth/discord",maxAge:600000});
   const url=new URL("https://discord.com/oauth2/authorize");
   url.searchParams.set("client_id",clientId);url.searchParams.set("response_type","code");
   url.searchParams.set("redirect_uri",APP_URL+"/auth/discord/callback");url.searchParams.set("scope","identify email");url.searchParams.set("state",state);
   res.redirect(url.toString());
 });
 app.get("/auth/discord/callback",async(req,res)=>{
-  const state=clean(req.query.state),code=clean(req.query.code),expiry=oauthStates.get(state);oauthStates.delete(state);
-  if(!state||!expiry||expiry<Date.now()||!code)return res.status(400).send("Discord sign-in expired or could not be verified. Return to Synapse Guard and try again.");
+  const state=clean(req.query.state),code=clean(req.query.code);
+  const stateCookie=clean(req.headers.cookie).split(";").map(x=>x.trim()).find(x=>x.startsWith("sg_oauth_state="));
+  const savedState=stateCookie?decodeURIComponent(stateCookie.slice("sg_oauth_state=".length)):"";
+  res.clearCookie("sg_oauth_state",{httpOnly:true,secure:true,sameSite:"lax",path:"/auth/discord"});
+  if(!state||!savedState||state!==savedState||!code)return res.status(400).send("Discord sign-in could not be verified. Please return to Synapse Guard and try again.");
   try{
     const clientId=clean(process.env.DISCORD_CLIENT_ID),clientSecret=clean(process.env.DISCORD_CLIENT_SECRET);
     const tokenResponse=await fetch("https://discord.com/api/oauth2/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({client_id:clientId,client_secret:clientSecret,grant_type:"authorization_code",code,redirect_uri:APP_URL+"/auth/discord/callback"})});
