@@ -28,7 +28,9 @@ async function initDb() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       access_count BIGINT NOT NULL DEFAULT 0,
       owner_discord_id TEXT,
-      owner_email TEXT
+      owner_email TEXT,
+      access_mode TEXT NOT NULL DEFAULT 'key',
+      hwid_lock BOOLEAN NOT NULL DEFAULT TRUE
     );
     CREATE TABLE IF NOT EXISTS allowlist (
       id BIGSERIAL PRIMARY KEY, project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -64,6 +66,8 @@ async function initDb() {
   await pool.query(`
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS owner_discord_id TEXT;
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS owner_email TEXT;
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS access_mode TEXT NOT NULL DEFAULT 'key';
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS hwid_lock BOOLEAN NOT NULL DEFAULT TRUE;
     CREATE TABLE IF NOT EXISTS discord_accounts (
       discord_id TEXT PRIMARY KEY, email TEXT NOT NULL, username TEXT NOT NULL,
       global_name TEXT, avatar TEXT, banner TEXT, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -93,7 +97,7 @@ async function authenticate(req, res, next) {
     const session=readSession(req);
     if(!session) return res.status(401).json({error:"Sign in with Discord or your project API key."});
     try {
-      const owned=await pool.query("SELECT id,name,created_at,access_count FROM projects WHERE id=$1 AND owner_discord_id=$2",[session.projectId,session.discordId]);
+      const owned=await pool.query("SELECT id,name,created_at,access_count,access_mode,hwid_lock FROM projects WHERE id=$1 AND owner_discord_id=$2",[session.projectId,session.discordId]);
       if(!owned.rowCount) return res.status(401).json({error:"This Discord account has no linked workspace. Please sign in again."});
       req.project=owned.rows[0]; return next();
     } catch(e) { console.error(e); return res.status(500).json({error:"Could not verify Discord session."}); }
@@ -104,7 +108,7 @@ async function authenticate(req, res, next) {
   const record = attempts.get(ip);
   if (record && record.until > now && record.count >= 30) return res.status(429).json({ error: "Too many attempts. Try again later." });
   try {
-    const result = await pool.query("SELECT id,name,created_at,access_count FROM projects WHERE key_hash=$1", [hashKey(raw)]);
+    const result = await pool.query("SELECT id,name,created_at,access_count,access_mode,hwid_lock FROM projects WHERE key_hash=$1", [hashKey(raw)]);
     if (!result.rowCount) {
       const r = attempts.get(ip) || { count: 0, until: now + 60000 };
       if (r.until < now) { r.count = 0; r.until = now + 60000; }
@@ -184,22 +188,26 @@ app.get("/api/health", async (req, res) => {
 });
 
 app.post("/api/projects", ready, async (req, res) => {
-  const name = clean(req.body.name);
-  if (name.length < 2 || name.length > 60) {
-    return res.status(400).json({ error: "Project name must be 2–60 characters." });
-  }
-  const key = newKey();
-  try {
-    const result = await pool.query(
-      "INSERT INTO projects(name,key_hash) VALUES($1,$2) RETURNING id,name,created_at",
-      [name, hashKey(key)]
-    );
-    await pool.query("INSERT INTO events(project_id,event_type) VALUES($1,'project_created')", [result.rows[0].id]);
-    res.status(201).json({ project: result.rows[0], apiKey: key, message: "Copy this key now. It will not be shown again." });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: "Could not create project." });
-  }
+  const session=readSession(req);
+  if(!session)return res.status(401).json({error:"Sign in with Discord to create and manage multiple projects."});
+  const name=clean(req.body.name), accessMode=req.body.accessMode==="public"?"public":"key", hwidLock=accessMode==="key"&&req.body.hwidLock!==false;
+  const scripts=Array.isArray(req.body.scripts)?req.body.scripts:[];
+  if(name.length<2||name.length>60)return res.status(400).json({error:"Project name must be 2–60 characters."});
+  if(scripts.length>20)return res.status(400).json({error:"Add up to 20 scripts when creating a project."});
+  for(const item of scripts){if(!clean(item.title)||clean(item.title).length>80||String(item.content||"").length>500000)return res.status(400).json({error:"Each script needs a name and must be under 500 KB."});}
+  const key=newKey(),client=await pool.connect();
+  try{
+    await client.query("BEGIN");
+    const result=await client.query("INSERT INTO projects(name,key_hash,owner_discord_id,owner_email,access_mode,hwid_lock) VALUES($1,$2,$3,(SELECT email FROM discord_accounts WHERE discord_id=$3),$4,$5) RETURNING id,name,created_at,access_mode,hwid_lock",[name,hashKey(key),session.discordId,accessMode,hwidLock]);
+    const project=result.rows[0];
+    for(const item of scripts)await client.query("INSERT INTO scripts(project_id,title,content) VALUES($1,$2,$3)",[project.id,clean(item.title),String(item.content||"")]);
+    await client.query("INSERT INTO events(project_id,event_type) VALUES($1,'project_created')",[project.id]);
+    await client.query("COMMIT");
+    const cookie=signSession({discordId:session.discordId,projectId:project.id,exp:Math.floor(Date.now()/1000)+604800});
+    res.cookie("sg_session",cookie,{httpOnly:true,secure:true,sameSite:"lax",path:"/",maxAge:604800000});
+    res.status(201).json({project,apiKey:key,message:"Project created. Copy this API key now; it will not be shown again."});
+  }catch(e){await client.query("ROLLBACK");console.error(e);res.status(500).json({error:"Could not create project."});}
+  finally{client.release();}
 });
 
 app.post("/api/auth", ready, authenticate, (req, res) => res.json({ project: req.project }));
@@ -365,7 +373,11 @@ app.post("/api/license/validate", ready, async (req, res) => {
   const projectId = clean(req.body.projectId);
   const licenseKey = clean(req.body.licenseKey).toUpperCase();
   const hwid = clean(req.body.hwid);
-  if (!/^[0-9a-f-]{36}$/i.test(projectId) || licenseKey.length < 12 || licenseKey.length > 100 || hwid.length < 8 || hwid.length > 200) {
+  if (!/^[0-9a-f-]{36}$/i.test(projectId)) return res.status(400).json({valid:false,reason:"invalid_request"});
+  const projectMode=await pool.query("SELECT access_mode,hwid_lock FROM projects WHERE id=$1",[projectId]);
+  if(!projectMode.rowCount)return res.status(404).json({valid:false,reason:"project_not_found"});
+  if(projectMode.rows[0].access_mode==="public")return res.json({valid:true,access:"public",hwidBound:false});
+  if (licenseKey.length < 12 || licenseKey.length > 100 || (projectMode.rows[0].hwid_lock && (hwid.length < 8 || hwid.length > 200))) {
     return res.status(400).json({ valid: false, reason: "invalid_request" });
   }
   const client = await pool.connect();
@@ -384,19 +396,19 @@ app.post("/api/license/validate", ready, async (req, res) => {
       await client.query("COMMIT");
       return res.status(403).json({ valid: false, reason: "license_expired" });
     }
-    const fingerprint = hashKey(hwid);
-    if (license.hwid_hash && license.hwid_hash !== fingerprint) {
+    const fingerprint = projectMode.rows[0].hwid_lock ? hashKey(hwid) : null;
+    if (projectMode.rows[0].hwid_lock && license.hwid_hash && license.hwid_hash !== fingerprint) {
       await client.query("ROLLBACK");
       return res.status(403).json({ valid: false, reason: "hwid_mismatch" });
     }
-    if (!license.hwid_hash) {
+    if (projectMode.rows[0].hwid_lock && !license.hwid_hash) {
       await client.query("UPDATE license_keys SET hwid_hash=$1,bound_at=NOW(),last_validated_at=NOW() WHERE id=$2", [fingerprint, license.id]);
     } else {
       await client.query("UPDATE license_keys SET last_validated_at=NOW() WHERE id=$1", [license.id]);
     }
     await client.query("INSERT INTO events(project_id,event_type) VALUES($1,$2)", [projectId, "license_validated"]);
     await client.query("COMMIT");
-    res.json({ valid: true, duration: license.duration, expiresAt: license.expires_at, hwidBound: true });
+    res.json({ valid: true, duration: license.duration, expiresAt: license.expires_at, hwidBound: !!projectMode.rows[0].hwid_lock });
   } catch (e) {
     await client.query("ROLLBACK");
     console.error(e);
