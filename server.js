@@ -88,7 +88,7 @@ function ready(req, res, next) {
 
 const attempts = new Map();
 async function authenticate(req, res, next) {
-  const raw = clean(req.headers.authorization).replace(/^Bearer\\s+/i, "");
+  const raw = clean(req.headers.authorization).replace(/^Bearer\s+/i, "");
   if (!raw) {
     const session=readSession(req);
     if(!session) return res.status(401).json({error:"Sign in with Discord or your project API key."});
@@ -119,7 +119,7 @@ async function authenticate(req, res, next) {
 }
 
 
-const APP_URL = (process.env.APP_URL || "https://synapse-guard-app.onrender.com").replace(/\\/$/, "");
+const APP_URL = (process.env.APP_URL || "https://synapse-guard-app.onrender.com").replace(/\/$/, "");
 const oauthStates = new Map();
 function signSession(payload) {
   const body=Buffer.from(JSON.stringify(payload)).toString("base64url");
