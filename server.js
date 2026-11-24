@@ -26,7 +26,9 @@ async function initDb() {
       name TEXT NOT NULL,
       key_hash TEXT UNIQUE NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      access_count BIGINT NOT NULL DEFAULT 0
+      access_count BIGINT NOT NULL DEFAULT 0,
+      owner_discord_id TEXT,
+      owner_email TEXT
     );
     CREATE TABLE IF NOT EXISTS allowlist (
       id BIGSERIAL PRIMARY KEY, project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -60,6 +62,12 @@ async function initDb() {
     );
   `);
   await pool.query(`
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS owner_discord_id TEXT;
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS owner_email TEXT;
+    CREATE TABLE IF NOT EXISTS discord_accounts (
+      discord_id TEXT PRIMARY KEY, email TEXT NOT NULL, username TEXT NOT NULL,
+      global_name TEXT, avatar TEXT, banner TEXT, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
     ALTER TABLE license_keys ADD COLUMN IF NOT EXISTS duration TEXT NOT NULL DEFAULT 'lifetime';
     ALTER TABLE license_keys ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
     ALTER TABLE license_keys ADD COLUMN IF NOT EXISTS hwid_hash TEXT;
@@ -80,35 +88,90 @@ function ready(req, res, next) {
 
 const attempts = new Map();
 async function authenticate(req, res, next) {
-  const raw = clean(req.headers.authorization).replace(/^Bearer\s+/i, "");
-  if (!raw || raw.length > 160) return res.status(401).json({ error: "Enter a valid project API key." });
+  const raw = clean(req.headers.authorization).replace(/^Bearer\\s+/i, "");
+  if (!raw) {
+    const session=readSession(req);
+    if(!session) return res.status(401).json({error:"Sign in with Discord or your project API key."});
+    try {
+      const owned=await pool.query("SELECT id,name,created_at,access_count FROM projects WHERE id=$1 AND owner_discord_id=$2",[session.projectId,session.discordId]);
+      if(!owned.rowCount) return res.status(401).json({error:"This Discord account has no linked workspace. Please sign in again."});
+      req.project=owned.rows[0]; return next();
+    } catch(e) { console.error(e); return res.status(500).json({error:"Could not verify Discord session."}); }
+  }
+  if (raw.length > 160) return res.status(401).json({ error: "Enter a valid project API key." });
   const ip = req.ip || "unknown";
   const now = Date.now();
   const record = attempts.get(ip);
-  if (record && record.until > now && record.count >= 30) {
-    return res.status(429).json({ error: "Too many attempts. Try again later." });
-  }
+  if (record && record.until > now && record.count >= 30) return res.status(429).json({ error: "Too many attempts. Try again later." });
   try {
-    const result = await pool.query(
-      "SELECT id,name,created_at,access_count FROM projects WHERE key_hash=$1", [hashKey(raw)]
-    );
+    const result = await pool.query("SELECT id,name,created_at,access_count FROM projects WHERE key_hash=$1", [hashKey(raw)]);
     if (!result.rowCount) {
       const r = attempts.get(ip) || { count: 0, until: now + 60000 };
       if (r.until < now) { r.count = 0; r.until = now + 60000; }
-      r.count++;
-      attempts.set(ip, r);
+      r.count++; attempts.set(ip, r);
       return res.status(401).json({ error: "That API key is not valid." });
     }
-    attempts.delete(ip);
-    req.project = result.rows[0];
+    attempts.delete(ip); req.project = result.rows[0];
     await pool.query("UPDATE projects SET access_count=access_count+1 WHERE id=$1", [req.project.id]);
     await pool.query("INSERT INTO events(project_id,event_type) VALUES($1,'dashboard_access')", [req.project.id]);
     next();
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: "Could not verify project key." });
-  }
+  } catch (e) { console.error(e); res.status(500).json({ error: "Could not verify project key." }); }
 }
+
+
+const APP_URL = (process.env.APP_URL || "https://synapse-guard-app.onrender.com").replace(/\\/$/, "");
+const oauthStates = new Map();
+function signSession(payload) {
+  const body=Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const secret=process.env.SESSION_SECRET||process.env.DISCORD_CLIENT_SECRET||"";
+  if(!secret) throw new Error("SESSION_SECRET is not configured.");
+  return body+"."+crypto.createHmac("sha256",secret).update(body).digest("base64url");
+}
+function readSession(req) {
+  const item=clean(req.headers.cookie).split(";").map(x=>x.trim()).find(x=>x.startsWith("sg_session="));
+  if(!item) return null;
+  const parts=item.slice(11).split("."),secret=process.env.SESSION_SECRET||process.env.DISCORD_CLIENT_SECRET||"";
+  if(parts.length!==2||!secret) return null;
+  const expected=crypto.createHmac("sha256",secret).update(parts[0]).digest(), supplied=Buffer.from(parts[1],"base64url");
+  if(expected.length!==supplied.length||!crypto.timingSafeEqual(expected,supplied)) return null;
+  try{const data=JSON.parse(Buffer.from(parts[0],"base64url").toString("utf8"));return data.exp>Date.now()/1000?data:null;}catch{return null;}
+}
+app.get("/auth/discord",(req,res)=>{
+  const clientId=clean(process.env.DISCORD_CLIENT_ID),secret=clean(process.env.DISCORD_CLIENT_SECRET);
+  if(!clientId||!secret)return res.status(503).send("Discord login is not configured. Add the Discord OAuth client ID and secret in Render.");
+  const state=crypto.randomBytes(24).toString("base64url");oauthStates.set(state,Date.now()+600000);
+  for(const [k,v] of oauthStates)if(v<Date.now())oauthStates.delete(k);
+  const url=new URL("https://discord.com/oauth2/authorize");
+  url.searchParams.set("client_id",clientId);url.searchParams.set("response_type","code");
+  url.searchParams.set("redirect_uri",APP_URL+"/auth/discord/callback");url.searchParams.set("scope","identify email");url.searchParams.set("state",state);
+  res.redirect(url.toString());
+});
+app.get("/auth/discord/callback",async(req,res)=>{
+  const state=clean(req.query.state),code=clean(req.query.code),expiry=oauthStates.get(state);oauthStates.delete(state);
+  if(!state||!expiry||expiry<Date.now()||!code)return res.status(400).send("Discord sign-in expired or could not be verified. Return to Synapse Guard and try again.");
+  try{
+    const clientId=clean(process.env.DISCORD_CLIENT_ID),clientSecret=clean(process.env.DISCORD_CLIENT_SECRET);
+    const tokenResponse=await fetch("https://discord.com/api/oauth2/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({client_id:clientId,client_secret:clientSecret,grant_type:"authorization_code",code,redirect_uri:APP_URL+"/auth/discord/callback"})});
+    const tokenData=await tokenResponse.json();if(!tokenResponse.ok||!tokenData.access_token)throw new Error("Discord token exchange failed.");
+    const profileResponse=await fetch("https://discord.com/api/users/@me",{headers:{Authorization:"Bearer "+tokenData.access_token}});
+    const profile=await profileResponse.json();
+    if(!profileResponse.ok||!profile.id||!profile.email||profile.verified!==true)throw new Error("A verified Discord email is required. Allow email access and verify your Discord email.");
+    await pool.query("INSERT INTO discord_accounts(discord_id,email,username,global_name,avatar,banner,updated_at) VALUES($1,$2,$3,$4,$5,$6,NOW()) ON CONFLICT(discord_id) DO UPDATE SET email=EXCLUDED.email,username=EXCLUDED.username,global_name=EXCLUDED.global_name,avatar=EXCLUDED.avatar,banner=EXCLUDED.banner,updated_at=NOW()",[profile.id,profile.email,profile.username,profile.global_name||null,profile.avatar||null,profile.banner||null]);
+    let project=await pool.query("SELECT id,name FROM projects WHERE owner_discord_id=$1 ORDER BY created_at ASC LIMIT 1",[profile.id]);
+    if(!project.rowCount){
+      const key=newKey(),name=((profile.global_name||profile.username)+"'s Workspace").slice(0,60);
+      project=await pool.query("INSERT INTO projects(name,key_hash,owner_discord_id,owner_email) VALUES($1,$2,$3,$4) RETURNING id,name",[name,hashKey(key),profile.id,profile.email]);
+      await pool.query("INSERT INTO events(project_id,event_type) VALUES($1,'project_created'),($1,'discord_login')",[project.rows[0].id]);
+    }else{
+      await pool.query("UPDATE projects SET owner_email=$1 WHERE id=$2",[profile.email,project.rows[0].id]);
+      await pool.query("INSERT INTO events(project_id,event_type) VALUES($1,'discord_login')",[project.rows[0].id]);
+    }
+    const session=signSession({discordId:profile.id,projectId:project.rows[0].id,exp:Math.floor(Date.now()/1000)+604800});
+    res.cookie("sg_session",session,{httpOnly:true,secure:true,sameSite:"lax",path:"/",maxAge:604800000});
+    res.redirect(APP_URL+"/?login=discord");
+  }catch(e){console.error("Discord OAuth:",e.message);res.status(500).send("Discord sign-in could not be completed. Return to Synapse Guard and try again.");}
+});
+app.post("/auth/logout",(req,res)=>{res.clearCookie("sg_session",{httpOnly:true,secure:true,sameSite:"lax",path:"/"});res.json({ok:true});});
 
 app.get("/api/health", async (req, res) => {
   try {
@@ -140,6 +203,12 @@ app.post("/api/projects", ready, async (req, res) => {
 });
 
 app.post("/api/auth", ready, authenticate, (req, res) => res.json({ project: req.project }));
+app.get("/api/me", ready, authenticate, async (req,res) => {
+  const session=readSession(req);
+  if(!session)return res.json({project:req.project,account:null});
+  const r=await pool.query("SELECT discord_id,email,username,global_name,avatar,banner FROM discord_accounts WHERE discord_id=$1",[session.discordId]);
+  res.json({project:req.project,account:r.rows[0]||null});
+});
 
 app.post("/api/discord/connect-code", ready, authenticate, async (req, res) => {
   try {
