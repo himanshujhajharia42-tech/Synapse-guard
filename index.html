@@ -117,19 +117,19 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
     <div class="sideBrand">SYNAPSE <span>GUARD</span></div>
     <div class="navArea">
       <div style="width:100%">
-        <div class="sideTitle">WORKSPACE</div>
-        <button class="nav active" data-page="overview"><span class="navIcon">◈</span> Overview</button>
-        <button class="nav" data-page="scripts"><span class="navIcon">⌘</span> Script library</button>
+        <div class="sideTitle">OVERVIEW</div>
+        <button class="nav active" data-page="overview"><span class="navIcon">◈</span> Dashboard</button>
+        <div class="sideTitle">SCRIPTS</div>
         <button class="nav" data-page="projects"><span class="navIcon">▣</span> Projects</button>
-        <div class="sideTitle">ACCESS CONTROL</div>
-        <button class="nav" data-page="users"><span class="navIcon">♙</span> Users</button>
+        <button class="nav" data-page="keys"><span class="navIcon">⌑</span> Key System</button>
         <button class="nav" data-page="whitelist"><span class="navIcon">✓</span> Whitelist</button>
-        <button class="nav" data-page="keys"><span class="navIcon">⌑</span> License keys</button>
         <button class="nav" data-page="blacklist"><span class="navIcon">⊘</span> Blacklist</button>
-        <div class="sideTitle">INSIGHTS & CONFIG</div>
-        <button class="nav" data-page="analytics"><span class="navIcon">▥</span> Analytics</button>
-        <button class="nav" data-page="discord"><span class="navIcon">◎</span> Discord bot</button>
-        <button class="nav" data-page="settings"><span class="navIcon">⚙</span> Settings</button>
+        <button class="nav" data-page="discord"><span class="navIcon">◎</span> Discord Bot</button>
+        <div class="sideTitle">ACCOUNT</div>
+        <button class="nav" data-page="billing"><span class="navIcon">▤</span> Billing</button>
+        <button class="nav" data-page="upgrade"><span class="navIcon">✧</span> Upgrade</button>
+        <div class="sideTitle">MANAGE</div>
+        <button class="nav" data-page="community"><span class="navIcon">♧</span> Community</button>
         <button class="nav signout" id="logout"><span class="navIcon">↪</span> Sign out</button>
       </div>
     </div>
@@ -204,6 +204,18 @@ function renderPage(){
   if(currentPage==="discord"){
     pageHead("Discord bot","INTEGRATIONS / SYNAPSE GUARD");
     html='<div class="panel"><h3>Connect your Discord bot</h3><p class="muted">Create a Discord application in the Developer Portal, add a Bot, and invite it to your server with the bot and applications.commands scopes.</p><p><b>Configure these environment variables on your Render service:</b></p><div class="apiCode">DISCORD_BOT_TOKEN<br>DISCORD_CLIENT_ID<br>DISCORD_OWNER_ID<br>DISCORD_GUILD_ID (optional, for faster command updates)</div><p class="muted">Keep the bot token private. Never paste it into this website or a public chat. Restart/redeploy the service after setting the variables.</p><button class="primary" onclick="generateDiscordCode()">GENERATE ONE-TIME CONNECT CODE</button><div id="discordCode" class="toast"></div></div><div class="panel"><h3>Connect from Discord</h3><p>After the bot appears online, click Generate Code above, then run:</p><div class="apiCode">/connect-project setup_code: YOUR_CODE</div><p class="muted">The code expires in 10 minutes and can only be used once. It links this project to the Discord server where you run the command.</p></div><div class="panel"><h3>Available slash commands</h3><div class="apiCode">/project<br>/key-create<br>/key-list<br>/key-info<br>/key-revoke<br>/key-activate<br>/key-reset-hwid<br>/key-extend<br>/whitelist-add<br>/whitelist-remove<br>/blacklist-add<br>/blacklist-remove<br>/stats<br>/help</div><p class="muted">Commands are restricted to the configured bot owner. Replies are private. All license and access changes update the same Synapse Guard database used by this website.</p></div>';
+  }
+  if(currentPage==="billing"){
+    pageHead("Billing","ACCOUNT / BILLING");
+    html='<div class="panel"><h3>Billing overview</h3><p class="muted">Billing history and payment methods will appear here once billing is connected.</p><span class="badge off">BILLING NOT CONNECTED</span></div>';
+  }
+  if(currentPage==="upgrade"){
+    pageHead("Upgrade","ACCOUNT / PLANS");
+    html='<div class="panel"><h3>Upgrade Synapse Guard</h3><p class="muted">Plan options and checkout are not connected yet. No payment will be taken from this page.</p><span class="badge off">PLANS COMING SOON</span></div>';
+  }
+  if(currentPage==="community"){
+    pageHead("Community","MANAGE / COMMUNITY");
+    html='<div class="panel"><h3>Synapse Community</h3><p class="muted">Join the community for announcements, updates and support.</p><a class="primary" href="https://discord.gg/synapsehub" target="_blank" rel="noopener noreferrer" style="display:inline-flex;text-decoration:none">OPEN DISCORD COMMUNITY</a></div>';
   }
   if(currentPage==="settings"){
     pageHead("Settings","CONFIGURATION / PROJECT");
