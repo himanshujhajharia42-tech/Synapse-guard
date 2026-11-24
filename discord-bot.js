@@ -8,7 +8,7 @@ function commands() {
   const durations = [{name:"Weekly · 7 days",value:"weekly"},{name:"Monthly · 30 days",value:"monthly"},{name:"Yearly · 365 days",value:"yearly"},{name:"Lifetime",value:"lifetime"}];
   const duration = o => o.addChoices(...durations);
   return [
-    new SlashCommandBuilder().setName("connect-project").setDescription("Connect a Synapse Guard project").addStringOption(o=>o.setName("setup_code").setDescription("One-time code generated in the Synapse Guard website").setRequired(true)),
+    new SlashCommandBuilder().setName("connect-project").setDescription("Connect a Synapse Guard project").addStringOption(o=>o.setName("setup_code").setDescription("Your Synapse Guard project API key").setRequired(true)),
     new SlashCommandBuilder().setName("project").setDescription("Show connected project"),
     new SlashCommandBuilder().setName("key-create").setDescription("Create a license").addStringOption(o=>duration(o.setName("duration").setDescription("License duration").setRequired(true))),
     new SlashCommandBuilder().setName("key-list").setDescription("List latest licenses").addIntegerOption(o=>o.setName("limit").setDescription("Number of keys").setMinValue(1).setMaxValue(15)),
@@ -47,14 +47,13 @@ async function startDiscordBot(pool) {
       if(n==="connect-project"){
         if(i.user.id!==owner)return i.editReply({content:"Only the configured bot owner can connect a project."});
         const code=clean(i.options.getString("setup_code"));
-        const used=await pool.query("UPDATE discord_connect_codes SET used_at=NOW() WHERE code_hash=$1 AND used_at IS NULL AND expires_at>NOW() RETURNING project_id",[hash(code)]);
-        if(!used.rowCount)return i.editReply({content:"That setup code is invalid, expired, or already used. Generate a new code on the website."});
-        const pid=used.rows[0].project_id;
-        const p=await pool.query("SELECT id,name FROM projects WHERE id=$1",[pid]);
-        if(!p.rowCount)return i.editReply({content:"Project not found."});
-        await pool.query("INSERT INTO discord_integrations(project_id,owner_user_id,guild_id) VALUES($1,$2,$3) ON CONFLICT(project_id) DO UPDATE SET owner_user_id=EXCLUDED.owner_user_id,guild_id=EXCLUDED.guild_id,connected_at=NOW()",[pid,owner,i.guildId||null]);
+        const projectKey=await pool.query("SELECT id,name FROM projects WHERE key_hash=$1",[hash(code)]);
+        if(!projectKey.rowCount)return i.editReply({content:"Invalid project API key. Copy the API key from Synapse Guard → Projects and try again."});
+        const pid=projectKey.rows[0].id;
+        const p=projectKey;
+        await pool.query("INSERT INTO discord_integrations(project_id,owner_user_id,guild_id) VALUES($1,$2,$3) ON CONFLICT(project_id) DO UPDATE SET owner_user_id=EXCLUDED.owner_user_id,guild_id=EXCLUDED.guild_id,connected_at=NOW()",[pid,i.user.id,i.guildId||null]);
         await log(pid,"discord_project_connected");
-        return i.editReply({content:"Connected project "+p.rows[0].name+". The one-time code has been consumed."});
+        return i.editReply({content:"Connected project "+p.rows[0].name+" using its project API key."});
       }
       if(i.user.id!==owner)return i.editReply({content:"You are not authorized to manage this project."});
       const p=await findProject(i);
