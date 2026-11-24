@@ -67,6 +67,40 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 @media(max-width:850px){.features{grid-template-columns:repeat(2,minmax(0,1fr))}.previewSection{grid-template-columns:1fr}.previewWindow{transform:none}}
 @media(max-width:600px){.wrap{padding:10px}.top{margin:0 -2px;padding:7px 2px 12px}.topActions .btn{padding:10px 12px;font-size:9px}.hero{min-height:540px;padding:62px 0 52px}h1{font-size:clamp(48px,13vw,68px)}.heroActions{gap:9px}.heroActions>*{flex:1 1 100%;max-width:360px}.trustStrip{justify-content:flex-start;flex-wrap:nowrap;overflow-x:auto;padding:12px 0 26px}.trustStrip span{white-space:nowrap}.features{grid-template-columns:1fr;gap:10px;margin-bottom:48px}.feature{min-height:0;padding:18px}.feature h3{margin-top:12px}.previewSection{padding:8px 0 55px;gap:22px}.previewCopy h2{font-size:34px}.windowBody{padding:14px}.codePreview{font-size:10px;padding:12px}.releaseRow{padding:10px}.dashboard .side{overflow:hidden}.navArea{overflow-x:auto;scrollbar-width:thin}.nav{font-size:10px;padding:9px}.headrow{align-items:flex-start}.tag{max-width:120px;text-align:center}.footer{font-size:8px}}
 
+
+/* Dashboard workspace refresh */
+.welcomePanel,.projectHero,.billingHero{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:22px 24px;border:1px solid #28515a;border-radius:16px;background:radial-gradient(ellipse at 90% 0%,#1a555555,transparent 50%),linear-gradient(130deg,#102630,#0a151f);margin-bottom:14px}
+.welcomePanel h3,.projectHero h3,.billingHero h3{font-size:22px;letter-spacing:-.04em;margin:6px 0}
+.welcomePanel p,.projectHero p,.billingHero p{margin:0;color:#92aeb9;font-size:11px}
+.dashboardGrid{display:grid;grid-template-columns:1fr 1fr;gap:13px;margin-bottom:13px}
+.panelHead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.panelHead h3{margin:5px 0 0}
+.quickGrid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.quickAction{display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;padding:13px;border:1px solid #23414d;border-radius:11px;background:#091923;color:#d9f7f4;transition:.16s}
+.quickAction:hover{border-color:#55dcd5;background:#0d252d;transform:translateY(-2px)}
+.quickAction b{font-size:18px;color:var(--cyan)}
+.quickAction span{font-size:10px;font-weight:850}
+.quickAction small{font-size:9px;color:#7f9ba8}
+.metaLine{display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid #1b303d;font-size:10px;color:#829ba8}
+.metaLine b,.metaLine code{color:#d7edf0;font-size:10px;overflow-wrap:anywhere}
+.fileList{margin:10px 0 14px}
+.fileRow{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid #1b303d;font-size:10px}
+.fileRow small{color:#7895a3}
+.emptyState{min-height:130px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;border:1px dashed #294451;border-radius:12px;background:#08151e;color:#68e9df;font-size:24px;text-align:center}
+.emptyState b{font-size:11px;color:#d9edf0}
+.emptyState small{font-size:9px;color:#7d99a7}
+.planGrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.planCard{padding:22px;border:1px solid #25424f;border-radius:15px;background:linear-gradient(145deg,#101e2a,#09131d)}
+.planCard h3{font-size:22px;margin:10px 0 4px}
+.planCard p,.planCard li{font-size:11px;color:#91a8b5}
+.planCard ul{padding-left:18px;line-height:2.1;margin:16px 0}
+.featuredPlan{border-color:#3c7778;box-shadow:0 0 35px #3be1d40b}
+.communityHero{text-align:center;padding:36px 22px 40px;margin-bottom:14px;border:1px solid #28515a;border-radius:17px;background:radial-gradient(ellipse at 50% 0%,#1b66604d,transparent 60%),linear-gradient(145deg,#10232e,#09131d)}
+.communityMark{width:58px;height:58px;display:grid;place-items:center;margin:0 auto 17px;border:1px solid #3a7779;border-radius:17px;background:#102d35;color:var(--cyan);font-size:27px}
+.communityHero h3{font-size:30px;letter-spacing:-.05em;margin:8px 0}
+.communityHero p{max-width:520px;margin:0 auto 22px;color:#91aab6;font-size:12px;line-height:1.8}
+@media(max-width:850px){.dashboardGrid,.planGrid{grid-template-columns:1fr}}
+@media(max-width:600px){.welcomePanel,.projectHero,.billingHero{align-items:flex-start;flex-direction:column;padding:18px}.welcomePanel h3,.projectHero h3,.billingHero h3{font-size:19px}.quickGrid{grid-template-columns:1fr 1fr}.communityHero{padding:27px 16px}.communityHero h3{font-size:25px}.fileRow{flex-direction:column;gap:3px}}
 </style>
 </head>
 <body><div class="wrap">
@@ -168,14 +202,22 @@ function renderPage(){
   $("dashMessage").textContent="";
   let html="";
   if(currentPage==="overview"){
-    pageHead("Overview","WORKSPACE OVERVIEW");
-    html='<div class="stats">'+stat("Project accesses",Number(p.access_count||0))+stat("Saved scripts",scripts.length)+stat("Whitelisted users",d.whitelist.length)+stat("Active license keys",d.keys.filter(x=>x.status==="active").length)+'</div>'+
-    '<div class="split"><div class="panel"><h3>Project details</h3><p><b style="color:#e8fbff">'+esc(p.name)+'</b></p><p>Created '+date(p.created_at)+'</p><p>Project ID</p><div class="apiCode">'+esc(p.id)+'</div></div><div class="panel"><h3>Quick actions</h3><div class="row"><button class="smallbtn" onclick="go(\'scripts\')">OPEN SCRIPT LIBRARY</button><button class="smallbtn" onclick="go(\'keys\')">GENERATE LICENSE</button><button class="smallbtn" onclick="go(\'whitelist\')">ADD USER</button></div><p>Manage the project from the navigation on the left.</p></div></div>'+
-    '<div class="panel"><h3>Recent activity</h3>'+table(["Event","Count"],Object.entries(a).sort((x,y)=>y[1]-x[1]).slice(0,6).map(([k,v])=>'<tr><td>'+esc(k.replaceAll("_"," "))+'</td><td>'+v+'</td></tr>'))+'</div>';
+    pageHead("Dashboard","OVERVIEW / YOUR WORKSPACE");
+    const activeKeys=d.keys.filter(x=>x.status==="active"&&(!x.expires_at||new Date(x.expires_at).getTime()>Date.now())).length;
+    const totalEvents=Object.values(a).reduce((n,v)=>n+Number(v||0),0);
+    html='<section class="welcomePanel"><div><div class="eyebrow">CONTROL CENTER</div><h3>Welcome to your workspace</h3><p>Everything you need to manage <b>'+esc(p.name)+'</b> is in one place.</p></div><span class="livePill">● WORKSPACE ACTIVE</span></section>'+
+    '<div class="stats">'+stat("Project accesses",Number(p.access_count||0),"Total project activity")+stat("Saved scripts",scripts.length,"Stored Lua / Luau files")+stat("Whitelisted users",d.whitelist.length,"Authorized identifiers")+stat("Active licenses",activeKeys,"Currently valid keys")+'</div>'+
+    '<div class="dashboardGrid"><div class="panel"><div class="panelHead"><div><div class="eyebrow">YOUR PROJECT</div><h3>'+esc(p.name)+'</h3></div><span class="badge">ACTIVE</span></div><p class="muted">Project ID</p><div class="apiCode">'+esc(p.id)+'</div><div class="metaLine"><span>Created</span><b>'+date(p.created_at)+'</b></div><button class="smallbtn" onclick="go(\'projects\')">MANAGE PROJECT →</button></div>'+
+    '<div class="panel"><div class="eyebrow">QUICK ACTIONS</div><h3>Jump back in</h3><div class="quickGrid"><button class="quickAction" onclick="go(\'keys\')"><b>⌑</b><span>Generate a key</span><small>Create a new license</small></button><button class="quickAction" onclick="go(\'whitelist\')"><b>✓</b><span>Whitelist user</span><small>Grant project access</small></button><button class="quickAction" onclick="go(\'blacklist\')"><b>⊘</b><span>Block user</span><small>Restrict an identifier</small></button><button class="quickAction" onclick="go(\'discord\')"><b>◎</b><span>Discord bot</span><small>Manage integration</small></button></div></div></div>'+
+    '<div class="panel"><div class="panelHead"><div><div class="eyebrow">ACTIVITY</div><h3>Workspace activity</h3></div><span class="tag">'+totalEvents+' EVENTS</span></div>'+table(["Event","Total"],Object.entries(a).sort((x,y)=>y[1]-x[1]).slice(0,7).map(([k,v])=>'<tr><td>'+esc(k.replaceAll("_"," "))+'</td><td>'+v+'</td></tr>'))+'</div>';
   }
   if(currentPage==="projects"){
-    pageHead("Projects","WORKSPACE / PROJECTS");
-    html='<div class="panel"><h3>Current project</h3><p class="muted">This API key currently opens one project workspace.</p><div class="apiCode">'+esc(p.name)+' · '+esc(p.id)+'</div><p class="muted">Multi-project switching and team accounts are not enabled in this version. You can rename this project from Settings.</p></div>';
+    pageHead("Projects","SCRIPTS / PROJECT WORKSPACE");
+    html='<div class="panel projectHero"><div><div class="eyebrow">ACTIVE PROJECT</div><h3>'+esc(p.name)+'</h3><p class="muted">Your project workspace and release resources.</p></div><span class="livePill">● ACTIVE</span></div>'+
+    '<div class="stats">'+stat("Project accesses",Number(p.access_count||0))+stat("Saved scripts",scripts.length)+stat("Whitelist entries",d.whitelist.length)+stat("Blacklist entries",d.blacklist.length)+'</div>'+
+    '<div class="split"><div class="panel"><h3>Project information</h3><div class="metaLine"><span>Project name</span><b>'+esc(p.name)+'</b></div><div class="metaLine"><span>Project ID</span><code>'+esc(p.id)+'</code></div><div class="metaLine"><span>Created</span><b>'+date(p.created_at)+'</b></div><label class="field">RENAME PROJECT<input class="control" id="renameInput" maxlength="60" value="'+esc(p.name)+'"></label><button class="primary" onclick="renameProject()">SAVE PROJECT NAME</button><div class="toast" id="settingsToast"></div></div>'+
+    '<div class="panel"><h3>Saved source files</h3><p class="muted">'+scripts.length+' Lua / Luau file(s) stored in this workspace.</p>'+(scripts.length?'<div class="fileList">'+scripts.slice(0,5).map(s=>'<div class="fileRow"><span>⌘ '+esc(s.title)+'</span><small>v'+s.version+' · '+date(s.updated_at)+'</small></div>').join("")+'</div>':'<div class="empty">No source files saved yet.</div>')+'<button class="smallbtn" onclick="go(\'scripts\')">OPEN SCRIPT LIBRARY →</button></div></div>'+
+    '<div class="panel"><div class="panelHead"><div><div class="eyebrow">SECURITY</div><h3>Project API key</h3></div><span class="badge off">PRIVATE CREDENTIAL</span></div><p class="muted">Rotating your API key immediately invalidates the current key. Only do this if you are ready to update every trusted integration using it.</p><button class="smallbtn danger" onclick="rotateKey()">ROTATE PROJECT API KEY</button><div id="rotatedKey"></div></div>';
   }
   if(currentPage==="scripts"){
     pageHead("Script library","WORKSPACE / LUA & LUAU");
@@ -207,15 +249,15 @@ function renderPage(){
   }
   if(currentPage==="billing"){
     pageHead("Billing","ACCOUNT / BILLING");
-    html='<div class="panel"><h3>Billing overview</h3><p class="muted">Billing history and payment methods will appear here once billing is connected.</p><span class="badge off">BILLING NOT CONNECTED</span></div>';
+    html='<div class="panel billingHero"><div class="eyebrow">ACCOUNT PLAN</div><h3>Billing center</h3><p class="muted">Your payment setup will be added here when you are ready. No payment details are requested or stored yet.</p><span class="badge off">PAYMENTS NOT CONFIGURED</span></div><div class="split"><div class="panel"><h3>Payment method</h3><p class="muted">No payment provider is connected. Add your payment method after the billing provider is configured.</p><div class="emptyState">▤<b>No payment method added</b><small>This section is ready for future checkout integration.</small></div></div><div class="panel"><h3>Billing history</h3><div class="emptyState">◷<b>No invoices yet</b><small>Invoices and transactions will appear here once billing is enabled.</small></div></div></div>';
   }
   if(currentPage==="upgrade"){
     pageHead("Upgrade","ACCOUNT / PLANS");
-    html='<div class="panel"><h3>Upgrade Synapse Guard</h3><p class="muted">Plan options and checkout are not connected yet. No payment will be taken from this page.</p><span class="badge off">PLANS COMING SOON</span></div>';
+    html='<div class="panel billingHero"><div class="eyebrow">SYNAPSE GUARD PLANS</div><h3>Choose when you are ready</h3><p class="muted">The upgrade area is prepared for your future payment setup. Plan checkout is intentionally disabled for now.</p><span class="badge off">CHECKOUT DISABLED</span></div><div class="planGrid"><div class="planCard"><span class="eyebrow">CURRENT ACCESS</span><h3>Workspace</h3><p>Core project management tools.</p><ul><li>Project workspace</li><li>Key system</li><li>Whitelist and blacklist</li><li>Discord integration</li></ul><span class="livePill">AVAILABLE</span></div><div class="planCard featuredPlan"><span class="eyebrow">FUTURE PLAN</span><h3>Synapse Plus</h3><p>Additional capacity and advanced controls can be added here.</p><ul><li>Expanded project limits</li><li>Enhanced analytics</li><li>Priority community support</li><li>Additional team tools</li></ul><span class="badge off">COMING LATER</span></div></div>';
   }
   if(currentPage==="community"){
     pageHead("Community","MANAGE / COMMUNITY");
-    html='<div class="panel"><h3>Synapse Community</h3><p class="muted">Join the community for announcements, updates and support.</p><a class="primary" href="https://discord.gg/synapsehub" target="_blank" rel="noopener noreferrer" style="display:inline-flex;text-decoration:none">OPEN DISCORD COMMUNITY</a></div>';
+    html='<div class="communityHero"><div class="communityMark">◎</div><div class="eyebrow">SYNAPSE COMMUNITY</div><h3>Build. Share. Improve.</h3><p>Join the community for announcements, product updates, support and conversations with other members.</p><a class="primary" href="https://discord.gg/synapsehub" target="_blank" rel="noopener noreferrer" style="display:inline-flex;text-decoration:none">JOIN THE DISCORD COMMUNITY ↗</a></div><div class="split"><div class="panel"><h3>Announcements</h3><p class="muted">Keep an eye on the community for new features, maintenance notices and release updates.</p></div><div class="panel"><h3>Support</h3><p class="muted">For help with your workspace, share the issue and relevant error message in the appropriate support channel. Never post API keys or bot tokens.</p></div></div>';
   }
   if(currentPage==="settings"){
     pageHead("Settings","CONFIGURATION / PROJECT");
