@@ -131,6 +131,84 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   .online{display:none}
 }
 
+
+/* Luavify-reference visual pass: Synapse Guard red/black theme */
+:root{color-scheme:dark;--bg:#080709;--panel:#111014;--panel2:#171318;--line:#30272c;--cyan:#ff344b;--cyan2:#d91f37;--text:#f7f4f5;--muted:#a49ba1;--green:#42d99b;--red:#ff6473;--amber:#f5ca69}
+html{background:#080709}
+body{background:radial-gradient(ellipse at 50% -18%,#54131c66 0,transparent 45%),radial-gradient(ellipse at 100% 55%,#35101844 0,transparent 42%),#080709;color:#f7f4f5}
+.logo{border-color:#762b38;color:#ff4055;background:linear-gradient(145deg,#2a1118,#100b0e);box-shadow:0 0 28px #ff30451f}
+.brand small{color:#a77a82}
+.btn{border-color:#493039;background:#171014;color:#f2dce0}
+.btn:hover{border-color:#ff465c;color:#ff6475}
+.primary{background:linear-gradient(110deg,#ff5368,#ed263e 58%,#bd1029);color:#fff;box-shadow:0 8px 28px #ed263e38}
+.primary:hover{box-shadow:0 12px 35px #ed263e55}
+.eyebrow{color:#ff7785}
+.pill{border-color:#65303a;background:#211015;color:#ffb5bd}
+.dot{background:#ff4359;box-shadow:0 0 12px #ff4359}
+h1 span{background:linear-gradient(110deg,#ffb3bd,#ff4058 60%,#d91c37);-webkit-background-clip:text;background-clip:text;color:transparent}
+.trustStrip span{border-color:#3d2930;background:#120d11;color:#c49ba2}
+.feature{background:linear-gradient(145deg,#191318,#0e0b0e);border-color:#35272d}
+.feature:before{background:linear-gradient(90deg,transparent,#ff536855,transparent)}
+.feature .ico,.communityMark{background:#2a1118;color:#ff5268;border-color:#71303d}
+.previewWindow{border-color:#54303a;background:linear-gradient(145deg,#171116,#0d0a0d);box-shadow:0 30px 90px #0009,0 0 55px #ed263e12}
+.windowBar{background:#1a1217;border-color:#3b252d}
+.releaseIcon{background:#2b1118;color:#ff5368}
+.authbox{border-color:#5b3039;background:linear-gradient(145deg,#1a1217,#0e0b0e)}
+.choice{border-color:#493039;background:#130e12}
+.choice:hover{border-color:#ff5268;background:#211117}
+.field input,.field textarea,.field select,.control{border-color:#493039;background:#0d0b0e}
+.field input:focus,.field textarea:focus,.control:focus{border-color:#ff5268}
+.notice{border-color:#713744;background:#211117;color:#f0b5bd}
+.keybox{border-color:#a43b4d;background:#170b10;color:#ffb8c2}
+.side{border-color:#38272e;background:linear-gradient(180deg,#171116,#0d0a0d)}
+.sideBrand span{color:#ff4359}
+.nav{color:#aaa0a5}
+.nav .navIcon{color:#bd7781}
+.nav.active{background:linear-gradient(100deg,#35131b,#1d1015);border-color:#71303d;box-shadow:inset 3px 0 #ff4058,0 6px 18px #0003;color:#ff7888}
+.nav:hover{background:#251219;color:#ffe5e8}
+.dashTopbar{border-color:#38272e;background:#100c10ed}
+.hamburger{border-color:#63303b;background:#1b1015}
+.hamburger span{background:#ff5368}
+.headrow .tag,.tag{color:#ff8290;border-color:#63303b;background:#211117}
+.stat{background:linear-gradient(145deg,#191318,#100c10);border-color:#3b2a31}
+.stat:after{border-color:#ff536822;box-shadow:0 0 25px #ff536812}
+.panel{background:linear-gradient(145deg,#171217,#0e0b0f);border-color:#38282f}
+.smallbtn{border-color:#56313b;background:#1c1116;color:#f3cbd1}
+.smallbtn:hover{border-color:#ff5368;color:#ff8794}
+.smallbtn.danger,.danger{color:#ff9aa5;border-color:#713744;background:#261117}
+.table th,.table td{border-color:#30232a}
+.table th{color:#b17d87}
+.table tr:hover td{background:#211218}
+.badge{border-color:#286b55;background:#10251e;color:#8ff0c1}
+.badge.off{border-color:#713744;background:#261117;color:#ff9aa5}
+.quickAction{border-color:#493039;background:#140e12;color:#f8e8eb}
+.quickAction:hover{border-color:#ff5368;background:#241219}
+.quickAction b{color:#ff5368}
+.apiCode,.editor{background:#0b080b;border-color:#402a32;color:#f1cbd1}
+.emptyState{border-color:#59313a;background:#120d11;color:#ff5368}
+.emptyState b{color:#f6e8eb}
+.planCard{border-color:#493039;background:linear-gradient(145deg,#191318,#0e0b0f)}
+.featuredPlan{border-color:#8d3445;box-shadow:0 0 35px #ed263e12}
+.communityHero{border-color:#65303a;background:radial-gradient(ellipse at 50% 0%,#7b1c2c55,transparent 60%),linear-gradient(145deg,#1c1117,#0e0b0f)}
+.accountProfile{border-color:#55303a;background-color:#160f13}
+.accountProfile>img,.accountBadge img{border-color:#9b4352}
+.online i{background:#42d99b;box-shadow:0 0 10px #42d99b}
+.livePill{border-color:#286b55;background:#10251e;color:#8ff0c1}
+.field input[type=checkbox]{accent-color:#ff4058}
+button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline-color:#ff5368}
+@media(max-width:900px){
+ .side{background:linear-gradient(180deg,#171116,#0d0a0d);border-color:#60303a;box-shadow:0 20px 80px #000b}
+ .menuShade{background:#000b}
+}
+@media(max-width:600px){
+ .wrap{background:transparent}
+ .panel{border-radius:16px;padding:16px}
+ .stat{border-radius:14px}
+ .dashboard .headrow h2{font-size:25px}
+ .dashTopbar{border-radius:12px}
+ .nav.active{box-shadow:inset 3px 0 #ff4058,0 0 20px #ed263e12}
+}
+
 </style>
 </head>
 <body><div class="wrap">
