@@ -3,6 +3,9 @@ const helmet = require("helmet");
 const crypto = require("crypto");
 const { Pool } = require("pg");
 const path = require("path");
+const fs = require("fs/promises");
+const os = require("os");
+const { spawn } = require("child_process");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -63,6 +66,16 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS discord_connect_codes (
       project_id UUID PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
       code_hash TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL, used_at TIMESTAMPTZ
+    );
+    CREATE TABLE IF NOT EXISTS script_builds (
+      id BIGSERIAL PRIMARY KEY,
+      script_id BIGINT NOT NULL REFERENCES scripts(id) ON DELETE CASCADE,
+      source_version INTEGER NOT NULL,
+      preset TEXT NOT NULL DEFAULT 'Medium',
+      status TEXT NOT NULL CHECK (status IN ('success','failed')),
+      output_content TEXT NOT NULL DEFAULT '',
+      error_message TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
   await pool.query(`
@@ -570,6 +583,53 @@ app.patch("/api/scripts/:id/protection-engine", ready, authenticate, async (req,
     await pool.query("INSERT INTO events(project_id,event_type) VALUES($1,$2)",[req.project.id,"protection_engine_selected"]);
     res.json({item:r.rows[0],note:"Preference saved. Protected build generation is not yet enabled."});
   } catch(e) { res.status(500).json({error:"Could not save protection preference."}); }
+});
+
+app.get("/api/scripts/:id/builds/latest", ready, authenticate, async (req,res) => {
+  try {
+    const owned=await pool.query("SELECT id FROM scripts WHERE id=$1 AND project_id=$2",[req.params.id,req.project.id]);
+    if(!owned.rowCount)return res.status(404).json({error:"Script not found."});
+    const r=await pool.query("SELECT id,source_version,preset,status,output_content,error_message,created_at FROM script_builds WHERE script_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1",[req.params.id]);
+    res.json({build:r.rows[0]||null});
+  } catch(e){console.error(e);res.status(500).json({error:"Could not load the latest build."});}
+});
+
+app.post("/api/scripts/:id/build", ready, authenticate, async (req,res) => {
+  const preset=clean(req.body.preset||"Medium");
+  if(!["Weak","Medium","Strong"].includes(preset))return res.status(400).json({error:"Choose Weak, Medium or Strong."});
+  const found=await pool.query("SELECT s.id,s.title,s.content,s.version,p.runtime_type FROM scripts s JOIN projects p ON p.id=s.project_id WHERE s.id=$1 AND s.project_id=$2",[req.params.id,req.project.id]);
+  if(!found.rowCount)return res.status(404).json({error:"Script not found."});
+  const script=found.rows[0];
+  if(script.runtime_type!=="standalone_lua")return res.status(400).json({error:"Prometheus builds are currently enabled for standalone Lua projects only. Luau support is still experimental and is not enabled here."});
+  const binary=process.env.PROMETHEUS_BIN||path.join(os.homedir(),".local","bin","prometheus-lua");
+  try{await fs.access(binary)}catch{return res.status(503).json({error:"Prometheus CLI is not installed on this deployment yet. Check the latest Render build logs."});}
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),"sg-prometheus-"));
+  const inputPath=path.join(dir,"source.lua"),outputPath=path.join(dir,"protected.lua");
+  try{
+    await fs.writeFile(inputPath,script.content,"utf8");
+    const result=await new Promise((resolve,reject)=>{
+      const child=spawn(binary,["--preset",preset,"--Lua51","--out",outputPath,"--nocolors",inputPath],{cwd:dir,env:{...process.env,NO_COLOR:"1"},stdio:["ignore","pipe","pipe"]});
+      let stdout="",stderr="",timedOut=false;
+      const timer=setTimeout(()=>{timedOut=true;child.kill("SIGKILL");},45000);
+      child.stdout.on("data",b=>{stdout=(stdout+b.toString()).slice(-12000);});
+      child.stderr.on("data",b=>{stderr=(stderr+b.toString()).slice(-12000);});
+      child.on("error",e=>{clearTimeout(timer);reject(e);});
+      child.on("close",code=>{clearTimeout(timer);resolve({code,stdout,stderr,timedOut});});
+    });
+    if(result.timedOut)throw new Error("Prometheus build timed out after 45 seconds.");
+    if(result.code!==0)throw new Error((result.stderr||result.stdout||"Prometheus could not parse this Lua source.").slice(-3000));
+    const output=await fs.readFile(outputPath,"utf8");
+    if(!output.trim())throw new Error("Prometheus returned an empty output file.");
+    if(Buffer.byteLength(output,"utf8")>2000000)throw new Error("Protected output exceeds the 2 MB build limit.");
+    const saved=await pool.query("INSERT INTO script_builds(script_id,source_version,preset,status,output_content) VALUES($1,$2,$3,'success',$4) RETURNING id,source_version,preset,status,created_at",[script.id,script.version,preset,output]);
+    await pool.query("INSERT INTO events(project_id,event_type) VALUES($1,'script_built')",[req.project.id]);
+    res.status(201).json({build:saved.rows[0],output});
+  }catch(e){
+    const message=String(e.message||"Prometheus build failed.").slice(0,3000);
+    try{await pool.query("INSERT INTO script_builds(script_id,source_version,preset,status,error_message) VALUES($1,$2,$3,'failed',$4)",[script.id,script.version,preset,message]);}catch(dbErr){console.error("Build log save:",dbErr.message);}
+    console.error("Prometheus build:",message);
+    res.status(422).json({error:message});
+  }finally{await fs.rm(dir,{recursive:true,force:true}).catch(()=>{});}
 });
 
 app.delete("/api/scripts/:id", ready, authenticate, async (req, res) => {
