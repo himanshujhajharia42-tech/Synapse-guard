@@ -186,6 +186,8 @@ app.get("/auth/discord/callback",async(req,res)=>{
   res.clearCookie("sg_oauth_state",{httpOnly:true,secure:true,sameSite:"lax",path:"/auth/discord"});
   if(!state||!savedState||state!==savedState||!code)return res.status(400).send("Discord sign-in could not be verified. Please return to Synapse Guard and try again.");
   try{
+    if (!schemaReady) schemaReady = initDb();
+    await schemaReady;
     const clientId=clean(process.env.DISCORD_CLIENT_ID),clientSecret=clean(process.env.DISCORD_CLIENT_SECRET);
     const tokenResponse=await fetch("https://discord.com/api/oauth2/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({client_id:clientId,client_secret:clientSecret,grant_type:"authorization_code",code,redirect_uri:APP_URL+"/auth/discord/callback"})});
     const tokenData=await tokenResponse.json();if(!tokenResponse.ok||!tokenData.access_token)throw new Error("Discord token exchange failed.");
@@ -638,9 +640,16 @@ app.delete("/api/scripts/:id", ready, authenticate, async (req, res) => {
 });
 
 app.get("*", (req, res) => res.sendFile(path.join(__dirname, "index.html")));
-app.listen(port, () => {
-  console.log("Synapse Guard listening on", port);
-  schemaReady = initDb();
-  schemaReady.then(() => require("./discord-bot").startDiscordBot(pool))
-    .catch(err => console.error("Discord bot startup:", err.message));
-});
+
+// Vercel invokes this Express app as a serverless function. Keep the persistent
+// Discord Gateway bot on a separate always-on worker, never inside a Function.
+if (process.env.VERCEL !== "1") {
+  app.listen(port, () => {
+    console.log("Synapse Guard listening on", port);
+    schemaReady = initDb();
+    schemaReady.then(() => require("./discord-bot").startDiscordBot(pool))
+      .catch(err => console.error("Discord bot startup:", err.message));
+  });
+}
+
+module.exports = app;
