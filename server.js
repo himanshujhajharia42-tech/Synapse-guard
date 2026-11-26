@@ -257,7 +257,7 @@ app.get("/api/me", ready, authenticate, async (req,res) => {
 
 app.get("/api/discord/guild-status", ready, authenticate, async (req,res) => {
   const guildId=clean(req.query.guildId);
-  if(!/^\\d{17,20}$/.test(guildId))return res.status(400).json({error:"Enter a valid Discord server ID."});
+  if(!/^\d{17,20}$/.test(guildId))return res.status(400).json({error:"Enter a valid Discord server ID."});
   const botToken=clean(process.env.DISCORD_BOT_TOKEN),clientId=clean(process.env.DISCORD_CLIENT_ID);
   if(!botToken||!clientId)return res.status(503).json({error:"Discord bot is not configured yet. Add DISCORD_BOT_TOKEN and DISCORD_CLIENT_ID to the Render environment."});
   const inviteUrl="https://discord.com/oauth2/authorize?"+new URLSearchParams({client_id:clientId,scope:"bot applications.commands",permissions:"0",guild_id:guildId,disable_guild_select:"true"}).toString();
