@@ -430,26 +430,18 @@ $("apiKeyChoice").onclick=()=>{$("apiKeyForm").classList.remove("hidden");$("api
 $("signInSubmit").onclick=async()=>{const key=$("apiKey").value.trim();if(!key){$("authMessage").textContent="Enter your project API key.";return}try{await enterProject(key)}catch(e){projectKey="";$("authMessage").textContent=e.message}};
 document.querySelectorAll(".nav[data-page]").forEach(b=>b.addEventListener("click",()=>go(b.dataset.page)));
 $("logout").onclick=async()=>{try{await fetch("/auth/logout",{method:"POST"})}catch{}home()};
-// Discord session bootstrap is handled by the isolated script below.
-</script>
-<script>
-(function(){
-  if(new URLSearchParams(window.location.search).get("login")!=="discord") return;
-  const landing=document.getElementById("landing");
-  const auth=document.getElementById("auth");
-  const message=document.getElementById("authMessage");
-  if(landing) landing.classList.add("hidden");
-  if(auth) auth.classList.add("active");
-  if(message) message.textContent="Finishing Discord sign-in…";
+// Discord OAuth callback: run inside the same script scope as enterProject.
+if(new URLSearchParams(window.location.search).get("login")==="discord"){
+  $("landing").classList.add("hidden");
+  $("auth").classList.add("active");
+  $("authMessage").textContent="Finishing Discord sign-in…";
   try { history.replaceState({},document.title,window.location.pathname); } catch(e) {}
-  Promise.resolve().then(function(){
-    if(typeof window.enterProject!=="function") throw new Error("Workspace loader did not initialize. Refresh the page.");
-    return window.enterProject("");
-  }).catch(function(error){
-    if(landing) landing.classList.add("hidden");
-    if(auth) auth.classList.add("active");
-    if(message) message.textContent=error && error.message ? error.message : "Could not load your Discord workspace. Please try again.";
+  Promise.resolve().then(()=>enterProject("")).catch(error=>{
+    $("landing").classList.add("hidden");
+    $("auth").classList.add("active");
+    $("authMessage").textContent=error?.message||"Could not load your Discord workspace. Please try again.";
   });
-})();
+}
 </script>
+
 </body></html>
