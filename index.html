@@ -294,7 +294,7 @@ function showAuth(){ $("landing").classList.add("hidden");$("dashboard").classLi
 function home(){ $("auth").classList.remove("active");$("dashboard").classList.remove("active");$("landing").classList.remove("hidden");projectKey="";dashboardData=null;history.replaceState({},document.title,location.pathname+location.search);window.scrollTo(0,0)}
 function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function date(s){return s?new Date(s).toLocaleDateString():"—"}
-async function enterProject(key){
+window.enterProject = async function enterProject(key){
   projectKey=key||"";
   const me=await api("/api/me");
   dashboardData=await api("/api/dashboard");
@@ -443,8 +443,8 @@ $("logout").onclick=async()=>{try{await fetch("/auth/logout",{method:"POST"})}ca
   if(message) message.textContent="Finishing Discord sign-in…";
   try { history.replaceState({},document.title,window.location.pathname); } catch(e) {}
   Promise.resolve().then(function(){
-    if(typeof enterProject!=="function") throw new Error("Workspace loader did not initialize. Refresh the page.");
-    return enterProject("");
+    if(typeof window.enterProject!=="function") throw new Error("Workspace loader did not initialize. Refresh the page.");
+    return window.enterProject("");
   }).catch(function(error){
     if(landing) landing.classList.add("hidden");
     if(auth) auth.classList.add("active");
