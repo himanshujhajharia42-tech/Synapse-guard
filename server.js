@@ -138,7 +138,7 @@ async function authenticate(req, res, next) {
   const record = attempts.get(ip);
   if (record && record.until > now && record.count >= 30) return res.status(429).json({ error: "Too many attempts. Try again later." });
   try {
-    const result = await pool.query("SELECT id,name,created_at,access_count,access_mode,hwid_lock FROM projects WHERE key_hash=$1", [hashKey(raw)]);
+    const result = await pool.query("SELECT id,name,created_at,access_count,access_mode,hwid_lock,runtime_type FROM projects WHERE key_hash=$1", [hashKey(raw)]);
     if (!result.rowCount) {
       const r = attempts.get(ip) || { count: 0, until: now + 60000 };
       if (r.until < now) { r.count = 0; r.until = now + 60000; }
