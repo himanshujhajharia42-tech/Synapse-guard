@@ -393,7 +393,7 @@ async function checkDiscordGuild(){
   if(!input||!status||!button||!invite)return;
   const guildId=input.value.trim();
   invite.classList.add("hidden");invite.removeAttribute("href");
-  if(!/^\\d{17,20}$/.test(guildId)){status.textContent="Enter a valid Discord server ID.";return}
+  if(!/^\d{17,20}$/.test(guildId)){status.textContent="Enter a valid Discord server ID.";return}
   button.disabled=true;status.textContent="Checking the bot's server membership…";
   try{
     const result=await api("/api/discord/guild-status?guildId="+encodeURIComponent(guildId));
