@@ -247,16 +247,18 @@ app.get("/api/dashboard", ready, authenticate, async (req, res) => {
   try {
     const id = req.project.id;
     await pool.query("UPDATE license_keys SET status='expired' WHERE project_id=$1 AND status='active' AND expires_at IS NOT NULL AND expires_at<=NOW()", [id]);
-    const [allow, keys, blocked, events, scripts] = await Promise.all([
+    const [allow, keys, blocked, events, scripts, executionTotal, executionDaily] = await Promise.all([
       pool.query("SELECT id,subject,created_at FROM allowlist WHERE project_id=$1 ORDER BY created_at DESC LIMIT 200", [id]),
       pool.query("SELECT id,license_key,status,duration,expires_at,(hwid_hash IS NOT NULL) AS hwid_bound,hwid_reset_count,hwid_reset_limit,bound_at,created_at FROM license_keys WHERE project_id=$1 ORDER BY created_at DESC LIMIT 200", [id]),
       pool.query("SELECT id,subject,reason,created_at FROM blacklist WHERE project_id=$1 ORDER BY created_at DESC LIMIT 200", [id]),
       pool.query("SELECT event_type,COUNT(*)::int AS total FROM events WHERE project_id=$1 GROUP BY event_type", [id]),
-      pool.query("SELECT id,title,content,version,protection_engine,created_at,updated_at FROM scripts WHERE project_id=$1 ORDER BY updated_at DESC LIMIT 100", [id])
+      pool.query("SELECT id,title,content,version,protection_engine,created_at,updated_at FROM scripts WHERE project_id=$1 ORDER BY updated_at DESC LIMIT 100", [id]),
+      pool.query("SELECT COUNT(*)::int AS total FROM events WHERE project_id=$1 AND event_type='license_validated'", [id]),
+      pool.query("SELECT to_char(days.day,'YYYY-MM-DD') AS day,COUNT(e.id)::int AS total FROM generate_series(CURRENT_DATE - INTERVAL '6 days',CURRENT_DATE,INTERVAL '1 day') AS days(day) LEFT JOIN events e ON e.project_id=$1 AND e.event_type='license_validated' AND e.created_at>=days.day AND e.created_at<days.day+INTERVAL '1 day' GROUP BY days.day ORDER BY days.day", [id])
     ]);
     const analytics = {};
     events.rows.forEach(row => analytics[row.event_type] = row.total);
-    res.json({ project: req.project, whitelist: allow.rows, keys: keys.rows, blacklist: blocked.rows, analytics, scripts: scripts.rows });
+    res.json({ project: req.project, whitelist: allow.rows, keys: keys.rows, blacklist: blocked.rows, analytics, scripts: scripts.rows, scriptExecutionTotal: executionTotal.rows[0].total, executionDaily: executionDaily.rows });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Could not load project data." });
