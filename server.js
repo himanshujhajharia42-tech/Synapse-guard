@@ -72,6 +72,18 @@ async function initDb() {
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS hwid_lock BOOLEAN NOT NULL DEFAULT TRUE;
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS runtime_type TEXT NOT NULL DEFAULT 'standalone_lua';
     ALTER TABLE scripts ADD COLUMN IF NOT EXISTS protection_engine TEXT NOT NULL DEFAULT 'prometheus';
+    CREATE TABLE IF NOT EXISTS script_versions (
+      id BIGSERIAL PRIMARY KEY,
+      script_id BIGINT NOT NULL REFERENCES scripts(id) ON DELETE CASCADE,
+      version INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(script_id, version)
+    );
+    INSERT INTO script_versions(script_id,version,title,content,created_at)
+    SELECT id,version,title,content,updated_at FROM scripts
+    ON CONFLICT(script_id,version) DO NOTHING;
     CREATE TABLE IF NOT EXISTS discord_accounts (
       discord_id TEXT PRIMARY KEY, email TEXT NOT NULL, username TEXT NOT NULL,
       global_name TEXT, avatar TEXT, banner TEXT, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -473,7 +485,8 @@ app.post("/api/scripts", ready, authenticate, async (req, res) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))",[req.project.id]);
     const count=await client.query("SELECT COUNT(*)::int AS total FROM scripts WHERE project_id=$1",[req.project.id]);
     if(count.rows[0].total>=3){await client.query("ROLLBACK");return res.status(403).json({error:"Free plan limit reached: each project can contain up to 3 scripts."});}
-    const r=await client.query("INSERT INTO scripts(project_id,title,content) VALUES($1,$2,$3) RETURNING id,title,version,created_at,updated_at",[req.project.id,title,content]);
+    const r=await client.query("INSERT INTO scripts(project_id,title,content) VALUES($1,$2,$3) RETURNING id,title,content,version,created_at,updated_at",[req.project.id,title,content]);
+    await client.query("INSERT INTO script_versions(script_id,version,title,content) VALUES($1,$2,$3,$4)",[r.rows[0].id,r.rows[0].version,r.rows[0].title,r.rows[0].content]);
     await client.query("INSERT INTO events(project_id,event_type) VALUES($1,'script_created')",[req.project.id]);
     await client.query("COMMIT");
     res.status(201).json({item:r.rows[0]});
@@ -485,15 +498,50 @@ app.patch("/api/scripts/:id", ready, authenticate, async (req, res) => {
   const title = clean(req.body.title), content = String(req.body.content || "");
   if (!title || title.length > 80) return res.status(400).json({ error: "Script name must be 1–80 characters." });
   if (content.length > 500000) return res.status(413).json({ error: "Script is too large (500 KB maximum)." });
+  const client=await pool.connect();
   try {
-    const r = await pool.query(
-      "UPDATE scripts SET title=$1,content=$2,version=version+1,updated_at=NOW() WHERE id=$3 AND project_id=$4 RETURNING id,title,version,created_at,updated_at",
-      [title, content, req.params.id, req.project.id]
+    await client.query("BEGIN");
+    const r=await client.query(
+      "UPDATE scripts SET title=$1,content=$2,version=version+1,updated_at=NOW() WHERE id=$3 AND project_id=$4 RETURNING id,title,content,version,created_at,updated_at",
+      [title,content,req.params.id,req.project.id]
     );
-    if (!r.rowCount) return res.status(404).json({ error: "Script not found." });
-    await pool.query("INSERT INTO events(project_id,event_type) VALUES($1,'script_updated')", [req.project.id]);
-    res.json({ item: r.rows[0] });
-  } catch (e) { res.status(500).json({ error: "Could not update script." }); }
+    if(!r.rowCount){await client.query("ROLLBACK");return res.status(404).json({error:"Script not found."});}
+    const s=r.rows[0];
+    await client.query("INSERT INTO script_versions(script_id,version,title,content) VALUES($1,$2,$3,$4)",[s.id,s.version,s.title,s.content]);
+    await client.query("INSERT INTO events(project_id,event_type) VALUES($1,'script_updated')",[req.project.id]);
+    await client.query("COMMIT");
+    res.json({item:{id:s.id,title:s.title,version:s.version,created_at:s.created_at,updated_at:s.updated_at}});
+  } catch(e) { await client.query("ROLLBACK"); console.error(e); res.status(500).json({error:"Could not update script."}); }
+  finally { client.release(); }
+});
+
+app.get("/api/scripts/:id/versions", ready, authenticate, async (req,res) => {
+  try {
+    const owned=await pool.query("SELECT id FROM scripts WHERE id=$1 AND project_id=$2",[req.params.id,req.project.id]);
+    if(!owned.rowCount)return res.status(404).json({error:"Script not found."});
+    const versions=await pool.query("SELECT version,title,created_at,LENGTH(content) AS bytes FROM script_versions WHERE script_id=$1 ORDER BY version DESC LIMIT 50",[req.params.id]);
+    res.json({versions:versions.rows});
+  } catch(e){console.error(e);res.status(500).json({error:"Could not load script versions."});}
+});
+
+app.post("/api/scripts/:id/restore/:version", ready, authenticate, async (req,res) => {
+  const version=Number(req.params.version);
+  if(!Number.isInteger(version)||version<1)return res.status(400).json({error:"Choose a valid version."});
+  const client=await pool.connect();
+  try{
+    await client.query("BEGIN");
+    const current=await client.query("SELECT id,version FROM scripts WHERE id=$1 AND project_id=$2 FOR UPDATE",[req.params.id,req.project.id]);
+    if(!current.rowCount){await client.query("ROLLBACK");return res.status(404).json({error:"Script not found."});}
+    const snapshot=await client.query("SELECT title,content FROM script_versions WHERE script_id=$1 AND version=$2",[req.params.id,version]);
+    if(!snapshot.rowCount){await client.query("ROLLBACK");return res.status(404).json({error:"That version is not available."});}
+    const next=current.rows[0].version+1, source=snapshot.rows[0];
+    const updated=await client.query("UPDATE scripts SET title=$1,content=$2,version=$3,updated_at=NOW() WHERE id=$4 RETURNING id,title,version,updated_at",[source.title,source.content,next,req.params.id]);
+    await client.query("INSERT INTO script_versions(script_id,version,title,content) VALUES($1,$2,$3,$4)",[req.params.id,next,source.title,source.content]);
+    await client.query("INSERT INTO events(project_id,event_type) VALUES($1,'script_restored')",[req.project.id]);
+    await client.query("COMMIT");
+    res.json({item:updated.rows[0],restoredFrom:version});
+  }catch(e){await client.query("ROLLBACK");console.error(e);res.status(500).json({error:"Could not restore this version."});}
+  finally{client.release();}
 });
 
 app.patch("/api/scripts/:id/protection-engine", ready, authenticate, async (req, res) => {
