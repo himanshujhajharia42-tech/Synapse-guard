@@ -30,7 +30,8 @@ async function initDb() {
       owner_discord_id TEXT,
       owner_email TEXT,
       access_mode TEXT NOT NULL DEFAULT 'key',
-      hwid_lock BOOLEAN NOT NULL DEFAULT TRUE
+      hwid_lock BOOLEAN NOT NULL DEFAULT TRUE,
+      runtime_type TEXT NOT NULL DEFAULT 'standalone_lua' CHECK (runtime_type IN ('roblox_studio','standalone_lua'))
     );
     CREATE TABLE IF NOT EXISTS allowlist (
       id BIGSERIAL PRIMARY KEY, project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -68,6 +69,7 @@ async function initDb() {
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS owner_email TEXT;
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS access_mode TEXT NOT NULL DEFAULT 'key';
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS hwid_lock BOOLEAN NOT NULL DEFAULT TRUE;
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS runtime_type TEXT NOT NULL DEFAULT 'standalone_lua';
     CREATE TABLE IF NOT EXISTS discord_accounts (
       discord_id TEXT PRIMARY KEY, email TEXT NOT NULL, username TEXT NOT NULL,
       global_name TEXT, avatar TEXT, banner TEXT, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -97,7 +99,7 @@ async function authenticate(req, res, next) {
     const session=readSession(req);
     if(!session) return res.status(401).json({error:"Sign in with Discord or your project API key."});
     try {
-      const owned=await pool.query("SELECT id,name,created_at,access_count,access_mode,hwid_lock FROM projects WHERE id=$1 AND owner_discord_id=$2",[session.projectId,session.discordId]);
+      const owned=await pool.query("SELECT id,name,created_at,access_count,access_mode,hwid_lock,runtime_type FROM projects WHERE id=$1 AND owner_discord_id=$2",[session.projectId,session.discordId]);
       if(!owned.rowCount) return res.status(401).json({error:"This Discord account has no linked workspace. Please sign in again."});
       req.project=owned.rows[0]; return next();
     } catch(e) { console.error(e); return res.status(500).json({error:"Could not verify Discord session."}); }
@@ -193,14 +195,18 @@ app.post("/api/projects", ready, async (req, res) => {
   const session=readSession(req);
   if(!session)return res.status(401).json({error:"Sign in with Discord to create and manage multiple projects."});
   const name=clean(req.body.name), accessMode=req.body.accessMode==="public"?"public":"key", hwidLock=accessMode==="key"&&req.body.hwidLock!==false;
+  const runtimeType=req.body.runtimeType==="roblox_studio"?"roblox_studio":"standalone_lua";
   const scripts=Array.isArray(req.body.scripts)?req.body.scripts:[];
   if(name.length<2||name.length>60)return res.status(400).json({error:"Project name must be 2–60 characters."});
-  if(scripts.length>20)return res.status(400).json({error:"Add up to 20 scripts when creating a project."});
+  if(scripts.length>3)return res.status(400).json({error:"Free plan allows up to 3 scripts per project."});
   for(const item of scripts){if(!clean(item.title)||clean(item.title).length>80||String(item.content||"").length>500000)return res.status(400).json({error:"Each script needs a name and must be under 500 KB."});}
   const key=newKey(),client=await pool.connect();
   try{
     await client.query("BEGIN");
-    const result=await client.query("INSERT INTO projects(name,key_hash,owner_discord_id,owner_email,access_mode,hwid_lock) VALUES($1,$2,$3,(SELECT email FROM discord_accounts WHERE discord_id=$3),$4,$5) RETURNING id,name,created_at,access_mode,hwid_lock",[name,hashKey(key),session.discordId,accessMode,hwidLock]);
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))",[session.discordId]);
+    const ownedCount=await client.query("SELECT COUNT(*)::int AS total FROM projects WHERE owner_discord_id=$1",[session.discordId]);
+    if(ownedCount.rows[0].total>=3){await client.query("ROLLBACK");return res.status(403).json({error:"Free plan limit reached: you can create up to 3 projects."});}
+    const result=await client.query("INSERT INTO projects(name,key_hash,owner_discord_id,owner_email,access_mode,hwid_lock,runtime_type) VALUES($1,$2,$3,(SELECT email FROM discord_accounts WHERE discord_id=$3),$4,$5,$6) RETURNING id,name,created_at,access_mode,hwid_lock,runtime_type",[name,hashKey(key),session.discordId,accessMode,hwidLock,runtimeType]);
     const project=result.rows[0];
     for(const item of scripts)await client.query("INSERT INTO scripts(project_id,title,content) VALUES($1,$2,$3)",[project.id,clean(item.title),String(item.content||"")]);
     await client.query("INSERT INTO events(project_id,event_type) VALUES($1,'project_created')",[project.id]);
@@ -215,7 +221,7 @@ app.post("/api/projects", ready, async (req, res) => {
 app.get("/api/projects/mine", ready, async (req,res) => {
   const session=readSession(req);
   if(!session)return res.status(401).json({error:"Discord sign-in is required."});
-  const r=await pool.query("SELECT id,name,created_at,access_mode,hwid_lock FROM projects WHERE owner_discord_id=$1 ORDER BY created_at DESC",[session.discordId]);
+  const r=await pool.query("SELECT id,name,created_at,access_mode,hwid_lock,runtime_type FROM projects WHERE owner_discord_id=$1 ORDER BY created_at DESC",[session.discordId]);
   res.json({projects:r.rows});
 });
 app.post("/api/projects/:id/select", ready, async (req,res) => {
@@ -457,14 +463,18 @@ app.post("/api/scripts", ready, authenticate, async (req, res) => {
   const title = clean(req.body.title), content = String(req.body.content || "");
   if (!title || title.length > 80) return res.status(400).json({ error: "Script name must be 1–80 characters." });
   if (content.length > 500000) return res.status(413).json({ error: "Script is too large (500 KB maximum)." });
+  const client=await pool.connect();
   try {
-    const r = await pool.query(
-      "INSERT INTO scripts(project_id,title,content) VALUES($1,$2,$3) RETURNING id,title,version,created_at,updated_at",
-      [req.project.id, title, content]
-    );
-    await pool.query("INSERT INTO events(project_id,event_type) VALUES($1,'script_created')", [req.project.id]);
-    res.status(201).json({ item: r.rows[0] });
-  } catch (e) { res.status(500).json({ error: "Could not save script." }); }
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))",[req.project.id]);
+    const count=await client.query("SELECT COUNT(*)::int AS total FROM scripts WHERE project_id=$1",[req.project.id]);
+    if(count.rows[0].total>=3){await client.query("ROLLBACK");return res.status(403).json({error:"Free plan limit reached: each project can contain up to 3 scripts."});}
+    const r=await client.query("INSERT INTO scripts(project_id,title,content) VALUES($1,$2,$3) RETURNING id,title,version,created_at,updated_at",[req.project.id,title,content]);
+    await client.query("INSERT INTO events(project_id,event_type) VALUES($1,'script_created')",[req.project.id]);
+    await client.query("COMMIT");
+    res.status(201).json({item:r.rows[0]});
+  } catch(e) { await client.query("ROLLBACK"); res.status(500).json({error:"Could not save script."}); }
+  finally { client.release(); }
 });
 
 app.patch("/api/scripts/:id", ready, authenticate, async (req, res) => {
