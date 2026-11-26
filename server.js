@@ -72,6 +72,7 @@ async function initDb() {
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS hwid_lock BOOLEAN NOT NULL DEFAULT TRUE;
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS runtime_type TEXT NOT NULL DEFAULT 'standalone_lua';
     ALTER TABLE scripts ADD COLUMN IF NOT EXISTS protection_engine TEXT NOT NULL DEFAULT 'prometheus';
+    UPDATE scripts SET protection_engine='prometheus' WHERE protection_engine <> 'prometheus';
     CREATE TABLE IF NOT EXISTS script_versions (
       id BIGSERIAL PRIMARY KEY,
       script_id BIGINT NOT NULL REFERENCES scripts(id) ON DELETE CASCADE,
@@ -562,7 +563,7 @@ app.post("/api/scripts/:id/restore/:version", ready, authenticate, async (req,re
 
 app.patch("/api/scripts/:id/protection-engine", ready, authenticate, async (req, res) => {
   const engine=clean(req.body.engine);
-  if(!["vm","prometheus"].includes(engine))return res.status(400).json({error:"Choose VM or Prometheus."});
+  if(engine!=="prometheus")return res.status(400).json({error:"Prometheus is the only supported protection engine."});
   try {
     const r=await pool.query("UPDATE scripts SET protection_engine=$1 WHERE id=$2 AND project_id=$3 RETURNING id,protection_engine",[engine,req.params.id,req.project.id]);
     if(!r.rowCount)return res.status(404).json({error:"Script not found."});
