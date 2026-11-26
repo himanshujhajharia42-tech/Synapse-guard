@@ -53,6 +53,7 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS scripts (
       id BIGSERIAL PRIMARY KEY, project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       title TEXT NOT NULL, content TEXT NOT NULL DEFAULT '', version INTEGER NOT NULL DEFAULT 1,
+      protection_engine TEXT NOT NULL DEFAULT 'prometheus',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE TABLE IF NOT EXISTS discord_integrations (
@@ -70,6 +71,7 @@ async function initDb() {
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS access_mode TEXT NOT NULL DEFAULT 'key';
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS hwid_lock BOOLEAN NOT NULL DEFAULT TRUE;
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS runtime_type TEXT NOT NULL DEFAULT 'standalone_lua';
+    ALTER TABLE scripts ADD COLUMN IF NOT EXISTS protection_engine TEXT NOT NULL DEFAULT 'prometheus';
     CREATE TABLE IF NOT EXISTS discord_accounts (
       discord_id TEXT PRIMARY KEY, email TEXT NOT NULL, username TEXT NOT NULL,
       global_name TEXT, avatar TEXT, banner TEXT, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -250,7 +252,7 @@ app.get("/api/dashboard", ready, authenticate, async (req, res) => {
       pool.query("SELECT id,license_key,status,duration,expires_at,(hwid_hash IS NOT NULL) AS hwid_bound,hwid_reset_count,hwid_reset_limit,bound_at,created_at FROM license_keys WHERE project_id=$1 ORDER BY created_at DESC LIMIT 200", [id]),
       pool.query("SELECT id,subject,reason,created_at FROM blacklist WHERE project_id=$1 ORDER BY created_at DESC LIMIT 200", [id]),
       pool.query("SELECT event_type,COUNT(*)::int AS total FROM events WHERE project_id=$1 GROUP BY event_type", [id]),
-      pool.query("SELECT id,title,content,version,created_at,updated_at FROM scripts WHERE project_id=$1 ORDER BY updated_at DESC LIMIT 100", [id])
+      pool.query("SELECT id,title,content,version,protection_engine,created_at,updated_at FROM scripts WHERE project_id=$1 ORDER BY updated_at DESC LIMIT 100", [id])
     ]);
     const analytics = {};
     events.rows.forEach(row => analytics[row.event_type] = row.total);
@@ -490,6 +492,17 @@ app.patch("/api/scripts/:id", ready, authenticate, async (req, res) => {
     await pool.query("INSERT INTO events(project_id,event_type) VALUES($1,'script_updated')", [req.project.id]);
     res.json({ item: r.rows[0] });
   } catch (e) { res.status(500).json({ error: "Could not update script." }); }
+});
+
+app.patch("/api/scripts/:id/protection-engine", ready, authenticate, async (req, res) => {
+  const engine=clean(req.body.engine);
+  if(!["vm","prometheus"].includes(engine))return res.status(400).json({error:"Choose VM or Prometheus."});
+  try {
+    const r=await pool.query("UPDATE scripts SET protection_engine=$1 WHERE id=$2 AND project_id=$3 RETURNING id,protection_engine",[engine,req.params.id,req.project.id]);
+    if(!r.rowCount)return res.status(404).json({error:"Script not found."});
+    await pool.query("INSERT INTO events(project_id,event_type) VALUES($1,$2)",[req.project.id,"protection_engine_selected"]);
+    res.json({item:r.rows[0],note:"Preference saved. Protected build generation is not yet enabled."});
+  } catch(e) { res.status(500).json({error:"Could not save protection preference."}); }
 });
 
 app.delete("/api/scripts/:id", ready, authenticate, async (req, res) => {
