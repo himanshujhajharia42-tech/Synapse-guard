@@ -255,6 +255,22 @@ app.get("/api/me", ready, authenticate, async (req,res) => {
   res.json({project:req.project,account:r.rows[0]||null});
 });
 
+app.get("/api/discord/guild-status", ready, authenticate, async (req,res) => {
+  const guildId=clean(req.query.guildId);
+  if(!/^\\d{17,20}$/.test(guildId))return res.status(400).json({error:"Enter a valid Discord server ID."});
+  const botToken=clean(process.env.DISCORD_BOT_TOKEN),clientId=clean(process.env.DISCORD_CLIENT_ID);
+  if(!botToken||!clientId)return res.status(503).json({error:"Discord bot is not configured yet. Add DISCORD_BOT_TOKEN and DISCORD_CLIENT_ID to the Render environment."});
+  const inviteUrl="https://discord.com/oauth2/authorize?"+new URLSearchParams({client_id:clientId,scope:"bot applications.commands",permissions:"0",guild_id:guildId,disable_guild_select:"true"}).toString();
+  try{
+    const response=await fetch("https://discord.com/api/v10/guilds/"+encodeURIComponent(guildId),{headers:{Authorization:"Bot "+botToken}});
+    if(response.ok){const guild=await response.json();return res.json({inGuild:true,guild:{id:guild.id,name:guild.name}})}
+    const detail=await response.json().catch(()=>({}));
+    if(response.status===404||response.status===403||detail.code===10004||detail.code===50001)return res.json({inGuild:false,inviteUrl});
+    console.error("Discord guild check:",response.status,detail);
+    return res.status(502).json({error:"Discord could not confirm the bot's membership. Please try again."});
+  }catch(e){console.error("Discord guild check:",e.message);return res.status(502).json({error:"Could not contact Discord. Please try again."})}
+});
+
 app.get("/api/dashboard", ready, authenticate, async (req, res) => {
   try {
     const id = req.project.id;
