@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: free
     region: singapore
-    buildCommand: npm install
+    buildCommand: "npm install && curl -fsSL https://raw.githubusercontent.com/prometheus-lua/Prometheus/master/install.sh | sh"
     startCommand: npm start
     autoDeploy: true
     envVars:
