@@ -430,18 +430,35 @@ $("apiKeyChoice").onclick=()=>{$("apiKeyForm").classList.remove("hidden");$("api
 $("signInSubmit").onclick=async()=>{const key=$("apiKey").value.trim();if(!key){$("authMessage").textContent="Enter your project API key.";return}try{await enterProject(key)}catch(e){projectKey="";$("authMessage").textContent=e.message}};
 document.querySelectorAll(".nav[data-page]").forEach(b=>b.addEventListener("click",()=>go(b.dataset.page)));
 $("logout").onclick=async()=>{try{await fetch("/auth/logout",{method:"POST"})}catch{}home()};
-// Discord OAuth callback: run inside the same script scope as enterProject.
-if(new URLSearchParams(window.location.search).get("login")==="discord"){
+// Restore a Discord session on every page load, not only when the OAuth
+// query parameter survives the redirect. This also handles returning to / directly.
+const discordCallback = new URLSearchParams(window.location.search).get("login")==="discord";
+if(discordCallback){
   $("landing").classList.add("hidden");
   $("auth").classList.add("active");
   $("authMessage").textContent="Finishing Discord sign-in…";
   try { history.replaceState({},document.title,window.location.pathname); } catch(e) {}
-  Promise.resolve().then(()=>enterProject("")).catch(error=>{
-    $("landing").classList.add("hidden");
-    $("auth").classList.add("active");
-    $("authMessage").textContent=error?.message||"Could not load your Discord workspace. Please try again.";
-  });
 }
+(async()=>{
+  try{
+    const sessionCheck=await fetch("/api/me",{credentials:"same-origin"});
+    if(sessionCheck.ok){
+      await enterProject("");
+      return;
+    }
+    if(discordCallback){
+      $("landing").classList.add("hidden");
+      $("auth").classList.add("active");
+      $("authMessage").textContent="Discord returned to Synapse Guard, but the login session was not received. Please check the Discord OAuth callback URL and try again.";
+    }
+  }catch(error){
+    if(discordCallback){
+      $("landing").classList.add("hidden");
+      $("auth").classList.add("active");
+      $("authMessage").textContent=error?.message||"Could not restore your Discord workspace.";
+    }
+  }
+})();
 </script>
 
 </body></html>
