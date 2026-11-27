@@ -189,7 +189,7 @@ app.get("/auth/discord",(req,res)=>{
   const clientId=clean(process.env.DISCORD_CLIENT_ID),secret=clean(process.env.DISCORD_CLIENT_SECRET);
   if(!clientId||!secret)return res.status(503).send("Discord login is not configured. Add the Discord OAuth client ID and secret in Render.");
   const state=crypto.randomBytes(24).toString("base64url");
-  res.cookie("sg_oauth_state",state,{httpOnly:true,secure:true,sameSite:"lax",path:"/auth/discord",maxAge:600000});
+  res.cookie("sg_oauth_state",state,{httpOnly:true,secure:true,sameSite:"lax",path:"/",maxAge:600000});
   const url=new URL("https://discord.com/oauth2/authorize");
   url.searchParams.set("client_id",clientId);url.searchParams.set("response_type","code");
   url.searchParams.set("redirect_uri",APP_URL+"/auth/discord/callback");url.searchParams.set("scope","identify email");url.searchParams.set("state",state);
@@ -199,7 +199,7 @@ app.get("/auth/discord/callback",async(req,res)=>{
   const state=clean(req.query.state),code=clean(req.query.code);
   const stateCookie=clean(req.headers.cookie).split(";").map(x=>x.trim()).find(x=>x.startsWith("sg_oauth_state="));
   const savedState=stateCookie?decodeURIComponent(stateCookie.slice("sg_oauth_state=".length)):"";
-  res.clearCookie("sg_oauth_state",{httpOnly:true,secure:true,sameSite:"lax",path:"/auth/discord"});
+  res.clearCookie("sg_oauth_state",{httpOnly:true,secure:true,sameSite:"lax",path:"/"});
   if(!state||!savedState||state!==savedState||!code)return res.status(400).send("Discord sign-in could not be verified. Please return to Synapse Guard and try again.");
   try{
     if (!schemaReady) schemaReady = initDb();
@@ -222,7 +222,8 @@ app.get("/auth/discord/callback",async(req,res)=>{
     }
     const session=signSession({discordId:profile.id,projectId:project.rows[0].id,exp:Math.floor(Date.now()/1000)+604800});
     res.cookie("sg_session",session,{httpOnly:true,secure:true,sameSite:"lax",path:"/",maxAge:604800000});
-    res.redirect(303,"/?login=discord");
+    res.setHeader("Cache-Control","no-store");
+    res.redirect(303,APP_URL+"/?login=discord");
   }catch(e){console.error("Discord OAuth callback failed:",e.stack||e.message);res.status(500).send("Discord sign-in could not be completed. Return to Synapse Guard and try again.");}
 });
 app.post("/auth/logout",(req,res)=>{res.clearCookie("sg_session",{httpOnly:true,secure:true,sameSite:"lax",path:"/"});res.json({ok:true});});
