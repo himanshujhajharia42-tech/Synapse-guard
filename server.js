@@ -206,8 +206,8 @@ app.get("/auth/discord/callback",async(req,res)=>{
     }
     const session=signSession({discordId:profile.id,projectId:project.rows[0].id,exp:Math.floor(Date.now()/1000)+604800});
     res.cookie("sg_session",session,{httpOnly:true,secure:true,sameSite:"lax",path:"/",maxAge:604800000});
-    res.redirect(APP_URL+"/?login=discord");
-  }catch(e){console.error("Discord OAuth:",e.message);res.status(500).send("Discord sign-in could not be completed. Return to Synapse Guard and try again.");}
+    res.redirect(303,"/?login=discord");
+  }catch(e){console.error("Discord OAuth callback failed:",e.stack||e.message);res.status(500).send("Discord sign-in could not be completed. Return to Synapse Guard and try again.");}
 });
 app.post("/auth/logout",(req,res)=>{res.clearCookie("sg_session",{httpOnly:true,secure:true,sameSite:"lax",path:"/"});res.json({ok:true});});
 
