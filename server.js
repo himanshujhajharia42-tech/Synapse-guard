@@ -9,6 +9,7 @@ const { spawn } = require("child_process");
 
 const app = express();
 const port = process.env.PORT || 3000;
+const APP_URL = (process.env.APP_URL || "https://synapse-guard-app.onrender.com").replace(/\/$/, "");
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("localhost")
@@ -16,6 +17,22 @@ const pool = new Pool({
 });
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(express.json({ limit: "12mb" }));
+// Keep OAuth state and session cookies on one canonical host. Vercel aliases
+// are different cookie domains, so normalize requests before any auth route.
+app.use((req, res, next) => {
+  if (process.env.VERCEL === "1") {
+    try {
+      const canonical = new URL(APP_URL);
+      if (req.headers.host && req.headers.host.toLowerCase() !== canonical.host.toLowerCase()) {
+        return res.redirect(308, APP_URL + req.originalUrl);
+      }
+    } catch (error) {
+      console.error("Invalid APP_URL configuration.");
+      return res.status(500).send("Application URL is not configured correctly.");
+    }
+  }
+  next();
+});
 
 const hashKey = value => crypto.createHash("sha256").update(value).digest("hex");
 const newKey = () => "sg_live_" + crypto.randomBytes(32).toString("base64url");
@@ -153,7 +170,6 @@ async function authenticate(req, res, next) {
 }
 
 
-const APP_URL = (process.env.APP_URL || "https://synapse-guard-app.onrender.com").replace(/\/$/, "");
 function signSession(payload) {
   const body=Buffer.from(JSON.stringify(payload)).toString("base64url");
   const secret=process.env.SESSION_SECRET||process.env.DISCORD_CLIENT_SECRET||"";
